@@ -82,3 +82,21 @@ def test_parse_response_raises_on_invalid_json():
 def test_base_agent_cannot_instantiate_directly():
     with pytest.raises(TypeError):
         BaseAgent()  # type: ignore[abstract]
+
+
+# ---- extract_json module-level ----
+
+from src.agents.base import extract_json
+
+
+def test_extract_json_module_function_works_standalone():
+    assert extract_json('{"action": "BUY"}') == {"action": "BUY"}
+
+
+def test_extract_json_module_function_handles_markdown_fence():
+    assert extract_json('```json\n{"x": 1}\n```') == {"x": 1}
+
+
+def test_extract_json_module_function_raises_on_no_json():
+    with pytest.raises(ValueError):
+        extract_json("plain text")
