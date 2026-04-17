@@ -286,29 +286,34 @@ def test_get_valid_tickers_fetches_and_caches_when_missing(tmp_cache_dir):
     ts.stock_basic.return_value = pd.DataFrame(
         {"symbol": ["000001", "300750", "600519"], "name": ["a", "b", "c"]}
     )
+    ts.fund_basic.return_value = pd.DataFrame(
+        {"ts_code": ["512760.SH", "510300.SH"], "name": ["芯片ETF", "沪深300ETF"]}
+    )
     tickers = get_valid_tickers(cache_root=tmp_cache_dir, tushare=ts)
-    assert tickers == {"000001", "300750", "600519"}
+    assert tickers == {"000001", "300750", "600519", "512760", "510300"}
     # Wrote cache
-    assert (tmp_cache_dir / "stock_basic.json").exists()
+    assert (tmp_cache_dir / "valid_tickers.json").exists()
 
 
 def test_get_valid_tickers_uses_cache_when_fresh(tmp_cache_dir):
     import json
-    cache_path = tmp_cache_dir / "stock_basic.json"
+    cache_path = tmp_cache_dir / "valid_tickers.json"
     cache_path.write_text(
-        json.dumps({"refreshed": "2026-04-17", "tickers": ["000001", "300750"]}),
+        json.dumps({"refreshed": "2026-04-17",
+                    "tickers": ["000001", "300750", "512760"]}),
         encoding="utf-8",
     )
     ts = MagicMock()
     tickers = get_valid_tickers(cache_root=tmp_cache_dir, tushare=ts)
-    assert tickers == {"000001", "300750"}
+    assert tickers == {"000001", "300750", "512760"}
     assert not ts.stock_basic.called
+    assert not ts.fund_basic.called
 
 
 def test_get_valid_tickers_refreshes_when_stale(tmp_cache_dir):
     import json
     import os
-    cache_path = tmp_cache_dir / "stock_basic.json"
+    cache_path = tmp_cache_dir / "valid_tickers.json"
     cache_path.write_text(
         json.dumps({"refreshed": "old", "tickers": ["000001"]}),
         encoding="utf-8",
@@ -321,9 +326,24 @@ def test_get_valid_tickers_refreshes_when_stale(tmp_cache_dir):
     ts.stock_basic.return_value = pd.DataFrame(
         {"symbol": ["000001", "300750"], "name": ["a", "b"]}
     )
+    ts.fund_basic.return_value = pd.DataFrame(
+        {"ts_code": ["512760.SH"], "name": ["芯片ETF"]}
+    )
+    tickers = get_valid_tickers(cache_root=tmp_cache_dir, tushare=ts)
+    assert tickers == {"000001", "300750", "512760"}
+    ts.stock_basic.assert_called_once()
+    ts.fund_basic.assert_called_once()
+
+
+def test_get_valid_tickers_degrades_when_fund_basic_fails(tmp_cache_dir):
+    """If fund_basic raises, we still return stocks — ETFs are best-effort."""
+    ts = MagicMock()
+    ts.stock_basic.return_value = pd.DataFrame(
+        {"symbol": ["000001", "300750"], "name": ["a", "b"]}
+    )
+    ts.fund_basic.side_effect = RuntimeError("TuShare fund_basic timeout")
     tickers = get_valid_tickers(cache_root=tmp_cache_dir, tushare=ts)
     assert tickers == {"000001", "300750"}
-    ts.stock_basic.assert_called_once()
 
 
 def test_fetch_market_data_records_errors(tmp_cache_dir):

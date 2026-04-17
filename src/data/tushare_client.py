@@ -105,6 +105,11 @@ class TuShareClient:
             fields="ts_code,symbol,name,area,industry,market",
         )
 
+    def fund_basic(self) -> pd.DataFrame:
+        """Listed exchange-traded funds (ETFs, LOFs)."""
+        self._throttle()
+        return self._pro.fund_basic(market="E", status="L")
+
     def moneyflow_hsgt(self, *, start_date: str, end_date: str) -> pd.DataFrame:
         self._throttle()
         return self._pro.moneyflow_hsgt(start_date=start_date, end_date=end_date)

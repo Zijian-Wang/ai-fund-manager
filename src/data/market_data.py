@@ -179,24 +179,43 @@ def fetch_northbound_5d(
 def get_valid_tickers(*, cache_root: Path, tushare: Any) -> set[str]:
     """Return the set of valid 6-digit ticker codes for guardrail validation.
 
-    Cached at ``data_cache/stock_basic.json`` (root level, not eval_date-keyed —
-    the listed-stock list changes rarely). Refreshed weekly.
+    Unions stocks (``stock_basic``) and exchange-traded funds (``fund_basic``
+    with ``market="E"``). ETF inclusion is best-effort — if ``fund_basic``
+    fails, we fall back to stocks-only and log nothing (cache refresh will
+    retry next week).
+
+    Cached at ``data_cache/valid_tickers.json`` (root level, not eval_date-keyed —
+    the listed universe changes rarely). Refreshed weekly.
     """
     from datetime import datetime
 
-    cache_path = Path(cache_root) / "stock_basic.json"
+    cache_path = Path(cache_root) / "valid_tickers.json"
     if not is_stale(cache_path, max_age_days=_TICKER_CACHE_MAX_AGE_DAYS):
         cached = read_json(cache_path)
         if cached is not None:
             return set(cached.get("tickers", []))
 
-    df = tushare.stock_basic()
-    tickers = sorted({str(row["symbol"]) for _, row in df.iterrows()})
+    stock_df = tushare.stock_basic()
+    tickers: set[str] = {str(row["symbol"]) for _, row in stock_df.iterrows()}
+
+    try:
+        fund_df = tushare.fund_basic()
+        # fund_basic has no 'symbol' column — derive from ts_code (e.g. "512760.SH")
+        tickers |= {
+            str(row["ts_code"]).split(".", 1)[0] for _, row in fund_df.iterrows()
+        }
+    except Exception:  # noqa: BLE001
+        # ETF universe is best-effort; stocks-only is still a valid result
+        pass
+
     write_json_atomic(
         cache_path,
-        {"refreshed": datetime.now().isoformat(timespec="seconds"), "tickers": tickers},
+        {
+            "refreshed": datetime.now().isoformat(timespec="seconds"),
+            "tickers": sorted(tickers),
+        },
     )
-    return set(tickers)
+    return tickers
 
 
 def fetch_market_data(

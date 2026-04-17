@@ -128,6 +128,15 @@ def test_stock_basic_uses_listed_status(client, mock_pro):
     assert df.iloc[0]["name"] == "平安银行"
 
 
+def test_fund_basic_filters_etf_listed(client, mock_pro):
+    mock_pro.fund_basic.return_value = pd.DataFrame(
+        {"ts_code": ["512760.SH"], "name": ["芯片ETF国泰"]}
+    )
+    df = client.fund_basic()
+    mock_pro.fund_basic.assert_called_once_with(market="E", status="L")
+    assert df.iloc[0]["name"] == "芯片ETF国泰"
+
+
 def test_moneyflow_hsgt_passes_dates(client, mock_pro):
     mock_pro.moneyflow_hsgt.return_value = pd.DataFrame(
         {"trade_date": ["20260417"], "north_money": ["292500.49"]}
