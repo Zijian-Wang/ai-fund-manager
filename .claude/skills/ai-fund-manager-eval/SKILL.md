@@ -1,6 +1,6 @@
 ---
 name: ai-fund-manager-eval
-description: Use when the user says "start today's eval", "run eval", "do today's fund manager check", or anything indicating the daily ai-fund-manager evaluation. Drives the full eval end-to-end — fetch market data, freeze briefing, optionally spawn Claude's isolated subagent, print the webchat prompt for manual agents (Gemini/GPT/Grok/DeepSeek), ingest pasted JSON decisions, render reports.
+description: Use when the user says "start today's eval", "run eval", "do today's fund manager check", or anything indicating the daily ai-fund-manager evaluation. Drives the full eval end-to-end — fetch market data, freeze briefing, print the webchat prompt for manual agents (Claude/Gemini/GPT/Grok/DeepSeek/Kimi), ingest pasted JSON decisions, render reports.
 ---
 
 # AI Fund Manager — Daily Eval
@@ -25,19 +25,16 @@ Default agents to prompt the user to evaluate via webchat:
 - **deepseek** (chat.deepseek.com)
 - **kimi** (kimi.com)
 
-The user can skip any of these per run. The user may also want the
-isolated `fund-manager-claude` subagent (no web, no session context)
-alongside webchat Claude — ask them once per run.
+The user can skip any of these per run.
 
 ## Step 1 — Ask which agents to include
 
 Before fetching anything, ask:
 
-> Which agents today? (default: all five) Include the isolated
-> fund-manager-claude subagent for a "two Claudes" comparison? (y/n)
+> Which agents today? (default: all six)
 
 Wait for the answer. Store the list as `AGENTS` for the rest of the run.
-If the user says "all" or just presses enter, use all five.
+If the user says "all" or just presses enter, use all six.
 
 ## Step 2 — Fetch market data + freeze briefing
 
@@ -108,79 +105,7 @@ PY
 `last_eval_date == eval_date`, stop with "今日评估已完成". If only
 some are done, continue with the missing ones.
 
-## Step 3 — (Optional) isolated fund-manager-claude subagent
-
-Only if the user opted in (Step 1). Build the per-agent prompt, then
-spawn the subagent via the `Agent` tool with `subagent_type="fund-manager-claude"`.
-
-The subagent has `tools: []` — it sees ONLY the inlined prompt. Its
-reply is the JSON decision. Ingest it the same way as webchat agents
-(Step 5), but label it `fund-manager-claude` to distinguish from
-webchat `claude`.
-
-Building the prompt (inline):
-
-```bash
-.venv/bin/python <<'PY'
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv(dotenv_path=Path(".env"))
-import json, os
-from src.data.tushare_client import TuShareClient
-from src.data.akshare_client import AKShareClient
-from src.data.baostock_client import BaoStockClient
-from src.data.market_data import (
-    fetch_market_data, extract_index_close, extract_stock_prices,
-)
-from src.briefing import build_agent_briefing, build_full_prompt
-from src.portfolio.state import (
-    load_state, load_agent_memory, load_prev_decision,
-)
-
-cache_root = Path("data_cache"); agents_root = Path("agents")
-eval_date = "<INSERT eval_date FROM STEP 2>"
-shared = (cache_root / eval_date / "briefing.md").read_text(encoding="utf-8")
-
-tushare = TuShareClient(token=os.environ["TUSHARE_TOKEN"], cache_root=cache_root)
-akshare = AKShareClient(); baostock = BaoStockClient()
-market_data = fetch_market_data(
-    eval_date=eval_date, holdings_tickers=[],
-    cache_root=cache_root, tushare=tushare, akshare=akshare, baostock=baostock,
-)
-current_prices = extract_stock_prices(market_data)
-benchmark_close = extract_index_close(market_data, "000300.SH")
-
-state = load_state(agent_name="fund-manager-claude", agents_root=agents_root)
-prev = load_prev_decision(state=state, agent_name="fund-manager-claude", agents_root=agents_root)
-incep = state["nav_history"][0].get("benchmark_close") if state["nav_history"] else None
-
-agent_briefing = build_agent_briefing(
-    shared=shared, agent_name="fund-manager-claude",
-    state=state, prev_decision=prev, current_prices=current_prices,
-    benchmark_close=benchmark_close, inception_benchmark_close=incep,
-)
-mem = load_agent_memory(agent_name="fund-manager-claude", agents_root=agents_root)
-memory_text = "\n\n".join(f"# {k}\n{v}" for k, v in mem.items())
-portfolio_text = json.dumps({
-    "current_cash": state["current_cash"],
-    "positions": state["positions"],
-    "last_eval_date": state["last_eval_date"],
-}, ensure_ascii=False, indent=2)
-
-full_prompt = build_full_prompt(
-    memory_text=memory_text, portfolio_text=portfolio_text,
-    market_briefing=agent_briefing,
-)
-(cache_root / eval_date / "subagent_prompt.txt").write_text(full_prompt, encoding="utf-8")
-print(f"prompt → data_cache/{eval_date}/subagent_prompt.txt ({len(full_prompt)} bytes)")
-PY
-```
-
-Then call the `Agent` tool with `subagent_type="fund-manager-claude"`,
-passing the prompt contents. The subagent returns its final message as
-raw text — proceed to Step 5's ingestion with `agent_name="fund-manager-claude"`.
-
-## Step 4 — Print the paste-me-into-webchat prompt
+## Step 3 — Print the paste-me-into-webchat prompt
 
 For each webchat agent, the prompt is identical (same briefing, same
 portfolio state, same memory — just per-agent's state). Build and show:
@@ -249,7 +174,7 @@ Then tell the user:
 > all portfolios are identical (first eval). Paste the AI's JSON back here
 > labeled like `gemini: {...}`, or tell me to read it from a file.
 
-## Step 5 — Ingest each decision
+## Step 4 — Ingest each decision
 
 When the user pastes a JSON response (or tells you to read it from a
 file), ingest it. For each agent one by one:
@@ -345,7 +270,7 @@ PY
 
 Summarize to the user after each: agent, pass/fail, trades, errors.
 
-## Step 6 — Render reports
+## Step 5 — Render reports
 
 Once the user has ingested everyone they want (or says "that's it"):
 
@@ -367,7 +292,7 @@ from src.portfolio.performance import rebuild_track_record
 from src.output.renderer import render_agent_report
 from src.output.comparison import render_comparison_report
 
-AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek", "kimi"]  # + "fund-manager-claude" if used
+AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek", "kimi"]
 eval_date = "<EVAL_DATE>"
 cache_root = Path("data_cache"); agents_root = Path("agents")
 
@@ -389,7 +314,7 @@ rebuild_track_record(
 DISPLAY_NAMES = {
     "claude": "Claude (webchat)", "gemini": "Gemini 2.5 Pro",
     "gpt": "GPT-5", "grok": "Grok 4", "deepseek": "DeepSeek V3",
-    "kimi": "Kimi K2", "fund-manager-claude": "Claude (isolated)",
+    "kimi": "Kimi K2",
 }
 agent_entries, metrics_agents = {}, {}
 for name in AGENTS:

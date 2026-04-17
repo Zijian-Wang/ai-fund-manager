@@ -7,33 +7,25 @@
 - **初始资金**：每个Agent ¥100,000
 - **投资范围**：A股股票、ETF（不做期货/期权）
 - **决策频率**：每日（按需触发）
-- **执行方式**：Claude Code 为总指挥，manual-first — 用户把 briefing prompt 粘进各家 webchat，JSON 决策贴回聊天；可选开启隔离 Claude 子 Agent 做 "两个 Claude" 对照
+- **执行方式**：Claude Code 为总指挥，manual-first — 用户把 briefing prompt 粘进各家 webchat（Claude/Gemini/GPT/Grok/DeepSeek/Kimi），JSON 决策贴回聊天
 - **业绩基准**：CSI 300（沪深300指数）
 
 ## 技术架构
 
 **Claude Code 是 orchestrator**。用户说"开始今天的评估"（或任何触发该意图的话），Claude Code 激活 `ai-fund-manager-eval` skill 并按 skill 的 step-by-step runbook 执行。skill 是叙事层；Python 在 `src/` 下承担正确性敏感的计算。
 
-**评估模式：manual-first**。用户手动把简报 prompt 粘进 Gemini/GPT/Grok/DeepSeek/Claude 的 webchat，拿到 JSON 决策，贴回聊天；Claude Code 用 `apply_agent_decision` 做校验+入账+日志。
+**评估模式：manual-first**。用户手动把简报 prompt 粘进 Claude.ai / Gemini / GPT / Grok / DeepSeek / Kimi 的 webchat，拿到 JSON 决策，贴回聊天；Claude Code 用 `apply_agent_decision` 做校验+入账+日志。
 
-- **优点**：webchat 自带 web 工具，news-gathering 本身成为被比较的能力之一；不需要配 API key；模型通常更强。
-- **代价**：公平性从技术强制退化为约定（每个 agent 同一段 briefing 文本 + "仅基于简报决策"的提示）。
+**Web 搜索是特性，不是漏洞**：webchat agent 各有自己的 web 工具、system prompt、记忆——news-gathering 能力本身就是被比较的维度之一。公平性通过"同一段冻结 briefing 文本"保证；模型差异、工具差异是产品特色。
 
-**可选的 `fund-manager-claude` 子 Agent**（隔离路径）：
-- 通过 Claude Code `Agent` 工具启动，`tools: []`（无 web / 无 session context）
-- 输入仅为 prompt 中 inline 的 briefing + state + memory
-- 输出 JSON 决策，与 webchat agent 同路径 ingest
-- 与 webchat Claude 并存时，可作为 "两个 Claude" 对照（一个有 web，一个没有）
-
-**API Agent 路径（dormant）**：`src/agents/gemini_agent.py` 等代码保留但默认不用；把对应 env key 填入 `.env` 并在 runbook 里切换即可恢复自动化。
+**API Agent 路径（dormant）**：`src/agents/gemini_agent.py` 等代码保留但默认不用；把对应 env key 填入 `.env` 并在 skill 里切换即可恢复自动化。
 
 ## 技术栈
 
 - Python 3.11+
 - 数据源：TuShare Pro（主力）、AKShare（备用，版本锁定）、BaoStock（零配置兜底）
 - 新闻：Eastmoney JSON API + 财联社 + Claude Code WebSearch
-- AI Agent：manual webchat（Gemini / GPT / Grok / DeepSeek / Claude.ai）为主；Python API agent 代码保留为 dormant，填 env key 即可启用
-- Isolated Claude 子 Agent：可选，通过 Claude Code `Agent` 工具启动（模型 opus，tools: []），用于 "两个 Claude" 对照
+- AI Agent：manual webchat（Claude.ai / Gemini / GPT / Grok / DeepSeek / Kimi）为主；Python API agent 代码保留为 dormant，填 env key 即可启用
 - 存储：本地 JSON/Markdown 文件
 
 ## 项目结构
@@ -45,8 +37,6 @@ ai-fund-manager/
 ├── .env                           # TUSHARE_TOKEN, GEMINI_API_KEY
 ├── requirements.txt
 ├── .claude/
-│   ├── agents/
-│   │   └── fund-manager-claude.md # 可选的隔离 Claude 子 Agent 定义（tools: []）
 │   └── skills/
 │       └── ai-fund-manager-eval/
 │           └── SKILL.md           # 日评估的完整 runbook（叙事层）
@@ -114,9 +104,7 @@ ai-fund-manager/
 
 简报冻结到 `data_cache/{eval_date}/briefing.md`，所有 agent 收到**完全相同的 briefing 文本**。每个 agent 对应的 prompt 文件独立生成，一并落盘供用户粘贴。
 
-**Manual-first 下公平性的退化**：webchat agent 自带不同的 web 工具、system prompt、记忆；因此技术强制转为约定——每个 agent 拿到同一段 briefing + "仅基于简报决策"的指令。这也是产品特色：**news-gathering 能力本身成为被比较的一部分**。
-
-**若要恢复技术强制公平**：用 `fund-manager-claude` 子 Agent（`tools: []`，无 web）替代 webchat Claude；或把 API agent 填 env key 并在 skill 里切回自动路径。
+**Web 搜索是特性**：webchat agent 各有自己的 web 工具、system prompt、记忆——news-gathering 能力本身就是被比较的维度之一。不追求技术强制公平；相同 briefing 文本 + 相同 prompt 模板 = 足够的约定性公平。模型差异和工具差异就是产品看点。
 
 ### 幂等性
 
@@ -129,12 +117,11 @@ ai-fund-manager/
 用户说 "开始今天的评估" 时，Claude Code 激活 **`ai-fund-manager-eval` skill**（在 `.claude/skills/ai-fund-manager-eval/SKILL.md`），skill 是完整 runbook。高层概要：
 
 ```
-1. 问用户：本期评估哪些 agent？要不要加隔离的 fund-manager-claude 子 agent？
+1. 问用户：本期评估哪些 agent？
 2. 解析 eval_date、拉取市场数据、构建并冻结共享简报
-3. (可选) 跑隔离子 agent，获得 Claude 的 "无 web" 决策
-4. 为每个 webchat agent 生成 prompt 文件，让用户粘进各家 webchat
-5. 用户把 AI 返回的 JSON 决策贴回聊天，Claude Code 用 apply_agent_decision 逐个 ingest
-6. 重建 track_record，渲染单 agent 报告 + 对比报告
+3. 为每个 webchat agent 生成 prompt 文件，让用户粘进各家 webchat
+4. 用户把 AI 返回的 JSON 决策贴回聊天，Claude Code 用 apply_agent_decision 逐个 ingest
+5. 重建 track_record，渲染单 agent 报告 + 对比报告
 ```
 
 每一步的具体 Python 调用在 skill 里；本文件保持架构总览，不再重复 runbook。
@@ -167,7 +154,7 @@ class BaseAgent(ABC):
         ...
 ```
 
-Claude不在Python Agent注册表中——由orchestrator生成隔离子Agent处理。状态在 `agents/claude/`，决策逻辑在隔离子Agent中运行（模型: opus，可一行升级）。
+Claude不在Python Agent注册表中——manual 模式下用户直接把 prompt 粘进 claude.ai webchat，拿到 JSON 贴回。状态在 `agents/claude/`。
 
 ### 添加新Agent
 
