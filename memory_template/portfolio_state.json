@@ -1,16 +1,10 @@
 {
-  "inception_date": "2026-04-21",
+  "agent": null,
+  "inception_date": null,
   "initial_capital": 100000,
   "current_cash": 100000,
+  "last_eval_date": null,
   "positions": [],
   "trade_history": [],
-  "week_number": 0,
-  "nav_history": [
-    {
-      "date": "2026-04-21",
-      "nav": 100000,
-      "benchmark_close": null,
-      "note": "组合成立"
-    }
-  ]
+  "nav_history": []
 }
