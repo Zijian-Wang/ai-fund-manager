@@ -18,7 +18,8 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 # 4) 配置 API Keys
 cp .env.example .env
-# 编辑 .env，填入 TUSHARE_TOKEN 和（可选）GEMINI_API_KEY
+# 编辑 .env，填入 TUSHARE_TOKEN（必须）
+# GEMINI_API_KEY 等 API agent keys 在 manual-first 模式下不需要
 
 # 5) 运行测试，确认一切就绪
 pytest
@@ -30,13 +31,17 @@ pytest
 
 > 开始今天的评估
 
-Claude Code 会按 `CLAUDE.md` 的 Orchestration Runbook 执行：
-1. 解析 eval_date（最近已收盘交易日）
-2. 拉取数据 + 新闻
-3. 构建并冻结共享简报
-4. 生成隔离子 Agent 做 Claude 的决策
-5. 调用 Gemini 等 API Agent
-6. 生成对比报告和每个 Agent 的报告
+Claude Code 会激活 `ai-fund-manager-eval` skill，按以下流程驱动：
+
+1. **选 agent**：问你本期评估哪些 agent（Claude/Gemini/GPT/Grok/DeepSeek），要不要开隔离的 `fund-manager-claude` 子 agent
+2. **拉数据 + 冻结简报**：TuShare/AKShare/BaoStock + 新闻 → `data_cache/{eval_date}/briefing.md`
+3. **（可选）隔离子 agent 决策**：通过 Claude Code `Agent` 工具启动 `fund-manager-claude`（无 web，仅看简报），直接拿 JSON
+4. **生成 webchat prompts**：每个 agent 一份 `data_cache/{eval_date}/prompt_<agent>.txt`
+5. **你手动跑 webchat**：
+   - 打开 `claude.ai` / `gemini.google.com` / `chat.openai.com` / `grok.com` / `chat.deepseek.com`
+   - 粘贴对应 prompt，等 AI 返回 JSON 决策
+6. **粘回聊天**：把每家 AI 的 JSON 贴回 Claude Code 聊天（"gemini: {...}"），Claude Code 逐个 ingest：校验 guardrails → 应用到 portfolio state → 存 trade journal
+7. **生成报告**：重建 track_record，渲染单 agent 报告 + 对比报告
 
 ### 输出文件
 
@@ -52,17 +57,19 @@ Claude Code 会按 `CLAUDE.md` 的 Orchestration Runbook 执行：
 
 ## 添加新 Agent
 
+### Manual 模式（默认）
+
+只需加到 skill 的 `AGENTS` 列表即可（`.claude/skills/ai-fund-manager-eval/SKILL.md`）。
+系统在首次出现时从 `memory_template/` 初始化 `agents/<name>/`，之后你手动把
+briefing prompt 粘进那家 AI 的 webchat。零代码。
+
+### API 模式（dormant，按需启用）
+
 1. 在 `src/agents/` 新建 `<provider>_agent.py`，继承 `BaseAgent`
 2. 实现 `decide(briefing, portfolio_state, memory) -> AgentResult`
 3. 在 `.env` 中添加 API key（例如 `DEEPSEEK_API_KEY=...`）
-4. 在 `src/agents/registry.py` 的 `AGENTS` 字典中注册：
-   ```python
-   "deepseek": {
-       "class": "src.agents.deepseek_agent.DeepSeekAgent",
-       "env_key": "DEEPSEEK_API_KEY",
-   },
-   ```
-5. 下次评估时自动从 `memory_template/` 初始化 `agents/<name>/`
+4. 在 `src/agents/registry.py` 的 `AGENTS` 字典中注册
+5. 在 skill 里切换对应 agent 到 API 路径
 
 ## 设计文档
 
