@@ -29,6 +29,12 @@
         "cumulative_return_pct": 0.0,
         "cash_pct": 0.888,
         "position_count": 1
+      },
+      "kimi": {
+        "nav": 100000.0,
+        "cumulative_return_pct": 0.0,
+        "cash_pct": 0.5028,
+        "position_count": 2
       }
     }
   }

@@ -23,6 +23,7 @@ Default agents to prompt the user to evaluate via webchat:
 - **gpt** (chat.openai.com)
 - **grok** (grok.com)
 - **deepseek** (chat.deepseek.com)
+- **kimi** (kimi.com)
 
 The user can skip any of these per run. The user may also want the
 isolated `fund-manager-claude` subagent (no web, no session context)
@@ -76,7 +77,7 @@ eval_date = resolve_eval_date(cache_root=cache_root)
 print(f"eval_date = {eval_date}")
 
 # Init state for every chosen agent, collect holdings
-AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek"]  # TODO: replace per user choice
+AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek", "kimi"]  # TODO: replace per user choice
 agents_root = Path("agents")
 all_holdings = set()
 for name in AGENTS:
@@ -201,7 +202,7 @@ from src.portfolio.state import (
     load_state, load_agent_memory, load_prev_decision,
 )
 
-AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek"]  # per user choice
+AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek", "kimi"]  # per user choice
 cache_root = Path("data_cache"); agents_root = Path("agents")
 eval_date = "<INSERT eval_date>"
 
@@ -366,7 +367,7 @@ from src.portfolio.performance import rebuild_track_record
 from src.output.renderer import render_agent_report
 from src.output.comparison import render_comparison_report
 
-AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek"]  # + "fund-manager-claude" if used
+AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek", "kimi"]  # + "fund-manager-claude" if used
 eval_date = "<EVAL_DATE>"
 cache_root = Path("data_cache"); agents_root = Path("agents")
 
@@ -388,7 +389,7 @@ rebuild_track_record(
 DISPLAY_NAMES = {
     "claude": "Claude (webchat)", "gemini": "Gemini 2.5 Pro",
     "gpt": "GPT-5", "grok": "Grok 4", "deepseek": "DeepSeek V3",
-    "fund-manager-claude": "Claude (isolated)",
+    "kimi": "Kimi K2", "fund-manager-claude": "Claude (isolated)",
 }
 agent_entries, metrics_agents = {}, {}
 for name in AGENTS:
