@@ -320,3 +320,101 @@ def test_apply_operations_do_not_mutate_input():
     assert state["current_cash"] == 100000
     assert state["positions"] == []
     assert state["trade_history"] == []
+
+
+# ---- Phase 3: trade journal + prev-decision + memory helpers ----
+
+from src.portfolio.state import (
+    load_prev_decision,
+    save_trade_journal,
+)
+
+
+def test_save_trade_journal_writes_dated_file(template_root, agents_root):
+    init_agent_state(
+        agent_name="gemini",
+        agents_root=agents_root,
+        template_root=template_root,
+        inception_date="2026-04-17",
+    )
+    decision = {"eval_date": "2026-04-17", "market_view": "neutral", "decisions": []}
+    save_trade_journal(
+        agent_name="gemini",
+        eval_date="2026-04-17",
+        decision=decision,
+        agents_root=agents_root,
+    )
+    path = agents_root / "gemini" / "trade_journal" / "2026-04-17.json"
+    assert path.exists()
+    assert json.loads(path.read_text(encoding="utf-8")) == decision
+
+
+def test_save_trade_journal_creates_dir_if_missing(agents_root, tmp_path):
+    # Bypass init — test that the helper creates trade_journal/ on demand
+    (agents_root / "newbie").mkdir()
+    decision = {"eval_date": "2026-04-17", "decisions": []}
+    save_trade_journal(
+        agent_name="newbie",
+        eval_date="2026-04-17",
+        decision=decision,
+        agents_root=agents_root,
+    )
+    assert (agents_root / "newbie" / "trade_journal" / "2026-04-17.json").exists()
+
+
+def test_load_prev_decision_returns_entry_matching_last_eval_date(
+    template_root, agents_root
+):
+    init_agent_state(
+        agent_name="gemini",
+        agents_root=agents_root,
+        template_root=template_root,
+        inception_date="2026-04-10",
+    )
+    prev = {"eval_date": "2026-04-10", "decisions": [
+        {"action": "BUY", "ticker": "300750", "name": "宁德时代",
+         "quantity": 100, "reason": {}}
+    ]}
+    save_trade_journal(
+        agent_name="gemini",
+        eval_date="2026-04-10",
+        decision=prev,
+        agents_root=agents_root,
+    )
+    state = load_state(agent_name="gemini", agents_root=agents_root)
+    state["last_eval_date"] = "2026-04-10"
+
+    got = load_prev_decision(state=state, agent_name="gemini", agents_root=agents_root)
+    assert got == prev
+
+
+def test_load_prev_decision_returns_none_when_no_prior_eval(
+    template_root, agents_root
+):
+    init_agent_state(
+        agent_name="gemini",
+        agents_root=agents_root,
+        template_root=template_root,
+        inception_date="2026-04-17",
+    )
+    state = load_state(agent_name="gemini", agents_root=agents_root)
+    # last_eval_date is None — first eval
+    assert load_prev_decision(
+        state=state, agent_name="gemini", agents_root=agents_root
+    ) is None
+
+
+def test_load_prev_decision_returns_none_when_file_missing(
+    template_root, agents_root
+):
+    init_agent_state(
+        agent_name="gemini",
+        agents_root=agents_root,
+        template_root=template_root,
+        inception_date="2026-04-10",
+    )
+    state = load_state(agent_name="gemini", agents_root=agents_root)
+    state["last_eval_date"] = "2026-04-99"  # file doesn't exist
+    assert load_prev_decision(
+        state=state, agent_name="gemini", agents_root=agents_root
+    ) is None

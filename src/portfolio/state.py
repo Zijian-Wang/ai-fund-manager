@@ -171,3 +171,41 @@ def apply_sell(
         }
     )
     return new_state
+
+
+def _trade_journal_path(
+    agent_name: str, eval_date: str, agents_root: Path
+) -> Path:
+    return Path(agents_root) / agent_name / "trade_journal" / f"{eval_date}.json"
+
+
+def save_trade_journal(
+    *,
+    agent_name: str,
+    eval_date: str,
+    decision: dict,
+    agents_root: Path,
+) -> None:
+    """Write the raw decision to ``agents/<name>/trade_journal/{eval_date}.json``.
+
+    Creates the trade_journal/ dir if it doesn't exist. Atomic write.
+    """
+    path = _trade_journal_path(agent_name, eval_date, agents_root)
+    write_json_atomic(path, decision)
+
+
+def load_prev_decision(
+    *,
+    state: dict,
+    agent_name: str,
+    agents_root: Path,
+) -> dict | None:
+    """Return the agent's previous decision (keyed by state['last_eval_date']).
+
+    Returns None on first eval (last_eval_date is None) or if the file
+    doesn't exist (e.g. the prior eval errored before save).
+    """
+    last = state.get("last_eval_date")
+    if not last:
+        return None
+    return read_json(_trade_journal_path(agent_name, last, agents_root))
