@@ -1,11 +1,11 @@
 """Gemini agent.
 
-Uses ``google-generativeai`` (already pinned in requirements.txt). The
-agent receives the per-agent briefing text + raw portfolio state + memory
-dict, renders the system prompt via ``build_full_prompt``, and calls the
-provider's API.
+Uses the ``google-genai`` SDK (the supported successor to the deprecated
+``google-generativeai``). The agent receives the per-agent briefing text
++ raw portfolio state + memory dict, renders the system prompt via
+``build_full_prompt``, and calls the provider's API.
 
-Tests inject a mock model via ``_model`` so they don't hit the network.
+Tests inject a mock client via ``_client`` so they don't hit the network.
 """
 from __future__ import annotations
 
@@ -28,19 +28,19 @@ class GeminiAgent(BaseAgent):
         api_key: str,
         *,
         model_name: str = _DEFAULT_MODEL,
-        _model: Any = None,
+        _client: Any = None,
     ) -> None:
-        if not api_key and _model is None:
+        if not api_key and _client is None:
             raise ValueError(
                 "GEMINI_API_KEY is required (set in .env or pass api_key=...)"
             )
-        if _model is not None:
-            self._model = _model
+        self.model_name = model_name
+        if _client is not None:
+            self._client = _client
         else:
-            import google.generativeai as genai
+            from google import genai
 
-            genai.configure(api_key=api_key)
-            self._model = genai.GenerativeModel(model_name)
+            self._client = genai.Client(api_key=api_key)
 
     def _render_memory(self, memory: dict) -> str:
         """Concatenate memory files into one text blob with section headers."""
@@ -55,7 +55,6 @@ class GeminiAgent(BaseAgent):
 
     def _render_state(self, state: dict) -> str:
         """Compact JSON snapshot for the agent's structured reference."""
-        # Only include the fields the agent needs for math: positions + cash.
         snapshot = {
             "current_cash": state.get("current_cash"),
             "positions": state.get("positions", []),
@@ -73,7 +72,10 @@ class GeminiAgent(BaseAgent):
         )
 
         try:
-            response = self._model.generate_content(prompt)
+            response = self._client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+            )
             raw_text = response.text
         except Exception as exc:  # noqa: BLE001
             return AgentResult(status="error", error=str(exc))

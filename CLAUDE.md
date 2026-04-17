@@ -268,7 +268,7 @@ Claude不在Python Agent注册表中——由orchestrator生成隔离子Agent处
 tushare>=1.4.0
 akshare>=1.18,<2           # 1.14.85 在 Python 3.14 上不可用；major 锁定
 baostock
-google-generativeai>=0.8.0  # 上游已弃用，需迁移到 google.genai
+google-genai>=1.0           # google-generativeai 的官方继任者
 python-dotenv>=1.0.0
 requests>=2.31.0
 ```
