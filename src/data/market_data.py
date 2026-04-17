@@ -268,3 +268,60 @@ def fetch_market_data(
         "holdings": holdings,
         "errors": errors,
     }
+
+
+def extract_stock_prices(market_data: dict) -> dict[str, float]:
+    """Return {six_digit_symbol: latest_close} from market_data.holdings."""
+    out: dict[str, float] = {}
+    for ts_code, block in (market_data.get("holdings") or {}).items():
+        rows = block.get("rows") or []
+        if not rows:
+            continue
+        close = rows[0].get("close")
+        if close is None:
+            continue
+        try:
+            out[ts_code.split(".")[0]] = float(close)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def extract_index_close(market_data: dict, ts_code: str) -> float | None:
+    """Return the latest close for ``ts_code`` (e.g. '000300.SH'), or None."""
+    block = (market_data.get("indices") or {}).get(ts_code)
+    if not block:
+        return None
+    rows = block.get("rows") or []
+    if not rows:
+        return None
+    close = rows[0].get("close")
+    if close is None:
+        return None
+    try:
+        return float(close)
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_stock_volumes_yuan(market_data: dict) -> dict[str, float]:
+    """Return {six_digit_symbol: latest_daily_amount_in_yuan}.
+
+    TuShare's ``amount`` column is in 千元; we multiply by 1000 to get ¥.
+    Skips tickers where amount is absent (e.g. BaoStock fallback rows
+    without amount). Orchestrator passes this to guardrails to enforce
+    the min_volume rule.
+    """
+    out: dict[str, float] = {}
+    for ts_code, block in (market_data.get("holdings") or {}).items():
+        rows = block.get("rows") or []
+        if not rows:
+            continue
+        amount = rows[0].get("amount")
+        if amount is None:
+            continue
+        try:
+            out[ts_code.split(".")[0]] = float(amount) * 1000
+        except (TypeError, ValueError):
+            pass
+    return out

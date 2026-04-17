@@ -349,3 +349,84 @@ def test_fetch_market_data_records_errors(tmp_cache_dir):
     assert len(result["errors"]) == 4 + 1 + 1 + 1  # 4 indices, sector, northbound, 1 stock
     assert any("sector" in e for e in result["errors"])
     assert any("northbound" in e for e in result["errors"])
+
+
+# ---- Phase 3: extraction helpers ----
+
+from src.data.market_data import (
+    extract_index_close,
+    extract_stock_prices,
+    extract_stock_volumes_yuan,
+)
+
+
+def test_extract_stock_prices_strips_suffix():
+    md = {
+        "holdings": {
+            "300750.SZ": {"source": "tushare", "rows": [
+                {"trade_date": "20260417", "close": 192.30, "amount": 5_000_000}
+            ]},
+            "000001.SZ": {"source": "tushare", "rows": [
+                {"trade_date": "20260417", "close": 12.50, "amount": 1_000_000}
+            ]},
+        },
+    }
+    prices = extract_stock_prices(md)
+    assert prices == {"300750": 192.30, "000001": 12.50}
+
+
+def test_extract_stock_prices_skips_empty_rows():
+    md = {
+        "holdings": {
+            "300750.SZ": {"source": "error", "rows": []},
+            "000001.SZ": {"source": "tushare", "rows": [
+                {"trade_date": "20260417", "close": 12.50}
+            ]},
+        },
+    }
+    prices = extract_stock_prices(md)
+    assert prices == {"000001": 12.50}
+
+
+def test_extract_index_close_returns_latest():
+    md = {
+        "indices": {
+            "000300.SH": {"source": "tushare", "rows": [
+                {"trade_date": "20260417", "close": 4728.67},
+                {"trade_date": "20260416", "close": 4736.61},
+            ]},
+        },
+    }
+    assert extract_index_close(md, "000300.SH") == 4728.67
+
+
+def test_extract_index_close_returns_none_when_missing():
+    md = {"indices": {"000300.SH": {"source": "error", "rows": []}}}
+    assert extract_index_close(md, "000300.SH") is None
+    assert extract_index_close({}, "000300.SH") is None
+
+
+def test_extract_stock_volumes_yuan_converts_from_qianyuan():
+    """TuShare's `amount` field is 千元; return it as ¥."""
+    md = {
+        "holdings": {
+            "300750.SZ": {"source": "tushare", "rows": [
+                # 5000 千元 = ¥5,000,000
+                {"trade_date": "20260417", "close": 192.30, "amount": 5000}
+            ]},
+        },
+    }
+    vols = extract_stock_volumes_yuan(md)
+    assert vols == {"300750": 5_000_000.0}
+
+
+def test_extract_stock_volumes_yuan_skips_when_amount_missing():
+    md = {
+        "holdings": {
+            "300750.SZ": {"source": "baostock", "rows": [
+                # BaoStock doesn't always have amount
+                {"date": "2026-04-17", "close": 192.30}
+            ]},
+        },
+    }
+    assert extract_stock_volumes_yuan(md) == {}
