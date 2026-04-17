@@ -1,0 +1,10 @@
+{
+  "agent": "gemini",
+  "inception_date": "2026-04-17",
+  "initial_capital": 100000,
+  "current_cash": 100000,
+  "last_eval_date": null,
+  "positions": [],
+  "trade_history": [],
+  "nav_history": []
+}
