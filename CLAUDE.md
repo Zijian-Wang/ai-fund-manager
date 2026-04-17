@@ -285,3 +285,440 @@ requests>=2.31.0
 ## 完整设计文档
 
 详见 `docs/superpowers/specs/2026-04-17-multi-agent-fund-manager-design.md`
+
+## 评估流程 (Orchestration Runbook)
+
+当用户说"开始今天的评估"时，按以下步骤执行。每一步都包含具体的 Python 调用。
+
+### 前置：激活 venv
+
+```bash
+source .venv/bin/activate
+# 或每次调用时使用 .venv/bin/python
+```
+
+所有代码示例假设 `python` 是 venv 里的那个。
+
+### Step 1 — 解析 eval_date
+
+```python
+from pathlib import Path
+from src.data.eval_date import resolve_eval_date
+from src.data.tushare_client import TuShareClient
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+cache_root = Path("data_cache")
+cache_root.mkdir(exist_ok=True)
+
+tushare = TuShareClient(
+    token=os.environ["TUSHARE_TOKEN"], cache_root=cache_root
+)
+
+# Refresh calendar if missing or narrow
+from datetime import date, timedelta
+today = date.today()
+start = today.replace(month=1, day=1).strftime("%Y%m%d")
+end = (today + timedelta(days=60)).strftime("%Y%m%d")
+tushare.trade_cal_refresh(start_date=start, end_date=end)
+
+eval_date = resolve_eval_date(cache_root=cache_root)
+# e.g. "2026-04-17"
+```
+
+**Idempotency gate:** before proceeding, check every active agent's
+`last_eval_date`. If ALL agents have `last_eval_date == eval_date`, stop
+with "今日评估已完成". If the briefing file exists, skip re-fetching and
+reuse it (see Step 3).
+
+### Step 2 — 拉取数据
+
+```python
+from src.data.akshare_client import AKShareClient
+from src.data.baostock_client import BaoStockClient
+from src.data.market_data import fetch_market_data
+from src.data.news_fetcher import fetch_news
+
+akshare = AKShareClient()
+baostock = BaoStockClient()
+
+# Gather every active agent's current holdings tickers
+# (see Step 4 for loading agent state)
+all_holdings = set()  # populated below once agent states are loaded
+
+market_data = fetch_market_data(
+    eval_date=eval_date,
+    holdings_tickers=list(all_holdings),
+    cache_root=cache_root,
+    tushare=tushare,
+    akshare=akshare,
+    baostock=baostock,
+)
+
+news = fetch_news(limit=20)
+# Optionally supplement with WebSearch/WebFetch for macro context:
+# Use Claude Code's WebSearch tool, append items to `news` list under
+# a "补充资讯" pseudo-source. Skip if Layer 1 already returned plenty.
+```
+
+### Step 3 — 构建并冻结简报
+
+```python
+from src.briefing import build_shared_briefing
+from src.data.cache import cache_dir_for, write_json_atomic
+
+shared = build_shared_briefing(market_data, news)
+briefing_path = cache_dir_for(cache_root, eval_date) / "briefing.md"
+briefing_path.parent.mkdir(parents=True, exist_ok=True)
+briefing_path.write_text(shared, encoding="utf-8")
+```
+
+**On re-run:** if `briefing_path` exists, load it instead of re-building.
+This is the frozen briefing — fairness depends on it NOT changing between
+Claude's decision (Step 4) and API agents' decisions (Step 5).
+
+### Step 4 — Claude 决策（隔离子Agent）
+
+For each eval, Claude decides FIRST so it cannot see other agents' results.
+
+```python
+from src.agents.base import extract_json
+from src.briefing import build_agent_briefing, build_full_prompt
+from src.data.market_data import (
+    extract_index_close, extract_stock_prices, extract_stock_volumes_yuan,
+)
+from src.guardrails import validate_decision
+from src.portfolio.state import (
+    apply_buy, apply_sell, init_agent_state, load_agent_memory,
+    load_prev_decision, load_state, save_state, save_trade_journal,
+)
+from src.portfolio.performance import append_nav_entry
+from src.data.market_data import get_valid_tickers
+
+# Initialize / load Claude's state
+claude_state = init_agent_state(
+    agent_name="claude",
+    agents_root=Path("agents"),
+    template_root=Path("memory_template"),
+    inception_date=eval_date,  # only used on first init
+)
+
+# Build Claude's per-agent briefing
+current_prices = extract_stock_prices(market_data)
+benchmark_close = extract_index_close(market_data, "000300.SH")
+inception_benchmark_close = None  # read from first nav_history entry if present
+if claude_state["nav_history"]:
+    inception_benchmark_close = claude_state["nav_history"][0].get("benchmark_close")
+
+prev_claude = load_prev_decision(
+    state=claude_state, agent_name="claude", agents_root=Path("agents")
+)
+
+agent_briefing = build_agent_briefing(
+    shared=shared,
+    agent_name="claude",
+    state=claude_state,
+    prev_decision=prev_claude,
+    current_prices=current_prices,
+    benchmark_close=benchmark_close,
+    inception_benchmark_close=inception_benchmark_close,
+)
+
+memory = load_agent_memory(agent_name="claude", agents_root=Path("agents"))
+memory_text = "\n\n".join(f"# {k}\n{v}" for k, v in memory.items())
+
+import json
+portfolio_text = json.dumps(
+    {
+        "current_cash": claude_state["current_cash"],
+        "positions": claude_state["positions"],
+        "last_eval_date": claude_state["last_eval_date"],
+    },
+    ensure_ascii=False, indent=2,
+)
+
+full_prompt = build_full_prompt(
+    memory_text=memory_text,
+    portfolio_text=portfolio_text,
+    market_briefing=agent_briefing,
+)
+```
+
+Now spawn the subagent via the `Agent` tool:
+
+```
+Agent(
+    subagent_type="fund-manager-claude",
+    description="Claude's trading decision for {eval_date}",
+    prompt=full_prompt,
+)
+```
+
+The subagent returns its final message as text. Extract the JSON:
+
+```python
+raw_text = agent_result  # the string returned by the Agent tool
+try:
+    decision = extract_json(raw_text)
+except ValueError as exc:
+    # Log + skip Claude for this eval
+    print(f"Claude parse failed: {exc}")
+    decision = None
+```
+
+If `decision` is parsed, validate and apply:
+
+```python
+def _ticker_suffix(tk: str) -> str:
+    """A-share ticker → exchange suffix.
+
+    6xx/688 → Shanghai (.SH, incl. STAR)
+    4xx/8xx → Beijing Exchange (.BJ)
+    else    → Shenzhen (.SZ, incl. 000/002/300 ChiNext)
+    """
+    if tk.startswith("6"):
+        return ".SH"
+    if tk.startswith(("4", "8")):
+        return ".BJ"
+    return ".SZ"
+
+
+if decision is not None:
+    valid_tickers = get_valid_tickers(cache_root=cache_root, tushare=tushare)
+    volumes = extract_stock_volumes_yuan(market_data)
+    # Pre-fetch volumes for any BUY ticker NOT in current holdings
+    buy_tickers = {
+        d["ticker"] for d in decision.get("decisions", [])
+        if d.get("action") == "BUY" and d.get("ticker") not in volumes
+    }
+    if buy_tickers:
+        from src.data.market_data import fetch_stock_5d
+        for tk in buy_tickers:
+            block = fetch_stock_5d(
+                ts_code=f"{tk}{_ticker_suffix(tk)}",
+                eval_date=eval_date,
+                cache_root=cache_root,
+                tushare=tushare,
+                baostock=baostock,
+            )
+            rows = block.get("rows") or []
+            if rows and "amount" in rows[0] and rows[0]["amount"]:
+                volumes[tk] = float(rows[0]["amount"]) * 1000
+
+    errors = validate_decision(
+        decision,
+        state=claude_state,
+        eval_date=eval_date,
+        current_prices=current_prices,
+        valid_tickers=valid_tickers,
+        ticker_volumes_yuan=volumes,
+    )
+    if errors:
+        print(f"Claude decision rejected: {[e.rule for e in errors]}")
+        # Still save the raw decision to trade_journal for the record
+        save_trade_journal(
+            agent_name="claude", eval_date=eval_date,
+            decision=decision, agents_root=Path("agents"),
+        )
+    else:
+        # Apply every trade
+        working = claude_state
+        for d in decision.get("decisions", []):
+            action = d.get("action")
+            if action == "BUY":
+                working = apply_buy(
+                    working,
+                    ticker=d["ticker"], name=d["name"],
+                    quantity=d["quantity"], price=current_prices[d["ticker"]],
+                    eval_date=eval_date,
+                    reason_summary=(d.get("reason") or {}).get("thesis", ""),
+                )
+            elif action == "SELL":
+                working = apply_sell(
+                    working,
+                    ticker=d["ticker"], quantity=d["quantity"],
+                    price=current_prices[d["ticker"]], eval_date=eval_date,
+                    reason_summary=(d.get("reason") or {}).get("thesis", ""),
+                )
+            # HOLD: no state change
+        working = append_nav_entry(
+            working, eval_date=eval_date,
+            current_prices=current_prices, benchmark_close=benchmark_close,
+        )
+        working["last_eval_date"] = eval_date
+        save_state(agent_name="claude", state=working, agents_root=Path("agents"))
+        save_trade_journal(
+            agent_name="claude", eval_date=eval_date,
+            decision=decision, agents_root=Path("agents"),
+        )
+        claude_state = working
+```
+
+### Step 5 — API Agents (Gemini, others)
+
+```python
+from src.agents.registry import get_active_agents
+
+active = get_active_agents()  # reads .env for each registered agent
+
+for agent in active:
+    state = init_agent_state(
+        agent_name=agent.name,
+        agents_root=Path("agents"),
+        template_root=Path("memory_template"),
+        inception_date=eval_date,
+    )
+
+    prev = load_prev_decision(
+        state=state, agent_name=agent.name, agents_root=Path("agents")
+    )
+    incep_bench = None
+    if state["nav_history"]:
+        incep_bench = state["nav_history"][0].get("benchmark_close")
+
+    agent_briefing = build_agent_briefing(
+        shared=shared,
+        agent_name=agent.name,
+        state=state,
+        prev_decision=prev,
+        current_prices=current_prices,
+        benchmark_close=benchmark_close,
+        inception_benchmark_close=incep_bench,
+    )
+    mem = load_agent_memory(agent_name=agent.name, agents_root=Path("agents"))
+
+    result = agent.decide(
+        briefing=agent_briefing, portfolio_state=state, memory=mem,
+    )
+
+    if result.status == "error":
+        print(f"{agent.name} errored: {result.error}")
+        continue
+
+    # Same validate + apply flow as Claude in Step 4
+    # (refactor candidate: extract an apply_agent_decision() helper)
+```
+
+**Retry:** API errors (timeout, rate limit) — one retry with 30s backoff
+before giving up on the agent for this eval.
+
+### Step 6 — 生成报告
+
+```python
+from src.portfolio.performance import (
+    compute_cumulative_return_pct, compute_nav, rebuild_track_record,
+)
+from src.output.renderer import render_agent_report
+from src.output.comparison import render_comparison_report
+
+# Rebuild track_record/nav_history.json from all agents
+rebuild_track_record(
+    agents_root=Path("agents"),
+    output_path=Path("track_record") / "nav_history.json",
+)
+
+# Per-agent reports
+agent_entries: dict[str, dict] = {}
+metrics_agents: dict[str, dict] = {}
+for agent_name in ["claude"] + [a.name for a in active]:
+    state_path = Path("agents") / agent_name / "portfolio_state.json"
+    if not state_path.exists():
+        agent_entries[agent_name] = {"display_name": agent_name, "decision": None}
+        continue
+    state = load_state(agent_name=agent_name, agents_root=Path("agents"))
+    # Decision is in trade_journal
+    from src.data.cache import read_json
+    decision = read_json(
+        Path("agents") / agent_name / "trade_journal" / f"{eval_date}.json"
+    )
+    display_name = {
+        "claude": "Claude",
+        "gemini": "Gemini 2.5 Pro",
+    }.get(agent_name, agent_name)
+
+    # Per-agent report (only if decision exists)
+    if decision is not None:
+        report = render_agent_report(
+            display_name=display_name,
+            decision=decision,
+            state=state,
+            current_prices=current_prices,
+            benchmark_close=benchmark_close,
+            inception_benchmark_close=(
+                state["nav_history"][0].get("benchmark_close")
+                if state["nav_history"] else None
+            ),
+        )
+        agent_out = Path("agents") / agent_name / "output" / f"{eval_date}.md"
+        agent_out.parent.mkdir(parents=True, exist_ok=True)
+        agent_out.write_text(report, encoding="utf-8")
+
+    agent_entries[agent_name] = {
+        "display_name": display_name,
+        "decision": decision,
+    }
+    # Build comparison metrics for this agent
+    if state["nav_history"]:
+        latest = state["nav_history"][-1]
+        prev = (state["nav_history"][-2]
+                if len(state["nav_history"]) >= 2 else None)
+        today_pct = (
+            (latest["nav"] - prev["nav"]) / prev["nav"] * 100
+            if prev and prev["nav"] else 0.0
+        )
+        metrics_agents[agent_name] = {
+            "nav": latest["nav"],
+            "today_pct": today_pct,
+            "cumulative_pct": latest["cumulative_return_pct"] * 100,
+            "position_count": latest["position_count"],
+        }
+
+# Benchmark metrics: infer inception close from earliest nav_history entry
+inception_bench = None
+for s in (claude_state, *[load_state(agent_name=a.name, agents_root=Path("agents"))
+                          for a in active]):
+    if s.get("nav_history") and s["nav_history"][0].get("benchmark_close"):
+        inception_bench = s["nav_history"][0]["benchmark_close"]
+        break
+bench_cum = (
+    (benchmark_close - inception_bench) / inception_bench * 100
+    if inception_bench else 0.0
+)
+# Today's benchmark change comes from market_data
+idx_rows = (market_data.get("indices", {}).get("000300.SH", {}).get("rows") or [])
+bench_today = float(idx_rows[0]["pct_chg"]) if idx_rows else 0.0
+
+metrics = {
+    "eval_date": eval_date,
+    "benchmark": {
+        "index": "000300.SH",
+        "close": benchmark_close,
+        "today_pct": bench_today,
+        "cumulative_pct": bench_cum,
+    },
+    "agents": metrics_agents,
+}
+
+comparison = render_comparison_report(
+    metrics=metrics,
+    agent_entries=agent_entries,
+)
+out_path = Path("output") / f"{eval_date}.md"
+out_path.parent.mkdir(parents=True, exist_ok=True)
+out_path.write_text(comparison, encoding="utf-8")
+
+print(f"✓ 评估完成 {eval_date}")
+print(f"  对比报告：{out_path}")
+for name in agent_entries:
+    p = Path("agents") / name / "output" / f"{eval_date}.md"
+    if p.exists():
+        print(f"  {name}: {p}")
+```
+
+### 最小失败态
+
+- Data layer 全部失败 → 简报里报 "市场数据暂不可用"，各 agent 只看新闻决策；
+  若新闻也全失败，简报说 "数据暂不可用"，agent 几乎一定选择 HOLD/观望。
+- 某个 agent 的决策无效 → 只跳过那个 agent；报告里标记 "未评估"。
+- Session 中途崩溃 → 重跑安全：冻结简报从磁盘加载；已完成的 agent 被幂等性检查跳过。
