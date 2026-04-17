@@ -1,105 +1,230 @@
-# AI基金经理 — A股模拟组合
+# AI基金经理 — A股模拟组合（多Agent版）
 
 ## 项目概述
 
-一个由Claude驱动的A股模拟基金经理。每周产出投资决策+推理过程，用于小红书内容发布。
+多个AI（Claude、Gemini等）各自独立管理 ¥100,000 A股模拟组合。相同数据输入、不同AI大脑、独立决策。对比结果用于小红书内容发布。
 
-- **初始资金**：¥100,000
+- **初始资金**：每个Agent ¥100,000
 - **投资范围**：A股股票、ETF（不做期货/期权）
-- **决策频率**：周度（周末分析 → 周一信号）
-- **执行方式**：AI出信号，人工执行
+- **决策频率**：每日（按需触发）
+- **执行方式**：Claude Code 为总指挥，API Agent自动运行，Claude自己也做决策
 - **业绩基准**：CSI 300（沪深300指数）
+
+## 技术架构
+
+**Claude Code 是 orchestrator**。用户说"开始今天的评估"，Claude Code 完成所有工作：
+1. 拉取市场数据和新闻
+2. 构建冻结的共享简报
+3. Claude自己先做决策（避免看到其他Agent结果）
+4. 调用API Agent（Gemini等）
+5. 生成对比报告
+
+**没有独立的 `run_weekly.py` 脚本**——Claude Code 就是流水线本身。
 
 ## 技术栈
 
 - Python 3.11+
-- 数据源：TuShare Pro（token存在 `.env` 文件中）、AKShare（免费备用）、BaoStock（零配置兜底）
-- LLM：Anthropic Claude API（`anthropic` Python SDK）
-- 存储：本地JSON/Markdown文件（无数据库）
+- 数据源：TuShare Pro（主力）、AKShare（备用，版本锁定）、BaoStock（零配置兜底）
+- 新闻：Eastmoney JSON API + 财联社 + Claude Code WebSearch
+- AI Agent：Gemini API（`google-generativeai`），未来可加 DeepSeek/GPT
+- Claude：通过 Claude Code session 直接决策（无需 Anthropic API key）
+- 存储：本地 JSON/Markdown 文件
 
 ## 项目结构
 
 ```
 ai-fund-manager/
-├── CLAUDE.md                    # 本文件
-├── .env                         # TUSHARE_TOKEN, ANTHROPIC_API_KEY
+├── CLAUDE.md                      # 本文件
+├── README.md                      # 用户操作指南
+├── .env                           # TUSHARE_TOKEN, GEMINI_API_KEY
 ├── requirements.txt
-├── run_weekly.py                # 主入口：每周手动触发
 ├── src/
 │   ├── data/
-│   │   ├── market_briefing.py   # 生成每周市场简报
-│   │   ├── tushare_client.py    # TuShare Pro数据获取
-│   │   ├── akshare_client.py    # AKShare备用数据获取
-│   │   └── news_fetcher.py      # 公开新闻抓取（东方财富/新浪）
-│   ├── agent/
-│   │   ├── system_prompt.py     # System prompt模板
-│   │   ├── decision_engine.py   # 调Claude API做决策
-│   │   └── guardrails.py        # 代码层风控（ticker验证/T+1/手数）
+│   │   ├── tushare_client.py      # TuShare Pro 封装（含缓存+限速）
+│   │   ├── akshare_client.py      # AKShare 备用封装
+│   │   ├── baostock_client.py     # BaoStock 零配置兜底
+│   │   ├── market_data.py         # 获取+缓存市场数据（指数、板块、持仓）
+│   │   └── news_fetcher.py        # Eastmoney JSON API + 财联社结构化新闻
+│   ├── agents/
+│   │   ├── base.py                # BaseAgent ABC + AgentResult dataclass
+│   │   ├── gemini_agent.py        # 调Gemini API，返回AgentResult
+│   │   └── registry.py            # Agent注册表：从.env发现活跃Agent
 │   ├── portfolio/
-│   │   ├── state.py             # 读写portfolio_state.json
-│   │   └── performance.py       # 计算NAV/收益率/vs基准
-│   └── memory/
-│       ├── manager.py           # 读写记忆文件
-│       └── reflection.py        # 周度反思：提取lessons
-├── memory/                      # 持久化记忆目录
-│   ├── portfolio_state.json     # 当前持仓状态
-│   ├── market_regime.md         # Agent当前市场判断
-│   ├── investment_beliefs.md    # CVRF风格投资信念
-│   ├── trade_journal/           # 每期交易日志
-│   │   └── week_001.json
-│   ├── lessons/                 # 提取的教训
-│   │   └── week_001.md
-│   └── watchlist.json           # 观察名单
-└── output/                      # 每期产出的内容
-    └── week_001.md              # 可直接用于小红书的周报
+│   │   ├── state.py               # 读写每个Agent的portfolio_state.json（原子写入）
+│   │   └── performance.py         # NAV计算、收益率、vs CSI 300基准
+│   ├── guardrails.py              # 共享风控验证（ticker/手数/T+1/仓位限制）
+│   ├── briefing.py                # 组装共享简报（市场数据+新闻+持仓）
+│   └── output/
+│       ├── renderer.py            # JSON决策 → 单Agent Markdown报告
+│       └── comparison.py          # 多Agent对比报告
+├── memory_template/               # 模板 — 新Agent初始化时复制
+│   ├── portfolio_state.json       # 100%现金起始状态
+│   ├── investment_beliefs.md
+│   ├── market_regime.md
+│   ├── watchlist.json
+│   ├── trade_journal/
+│   └── lessons/
+├── agents/                        # 每个Agent的持久化状态（运行时创建）
+│   ├── claude/
+│   │   ├── portfolio_state.json
+│   │   ├── memory/
+│   │   ├── trade_journal/
+│   │   └── output/
+│   └── gemini/
+│       ├── portfolio_state.json
+│       ├── memory/
+│       ├── trade_journal/
+│       └── output/
+├── track_record/
+│   └── nav_history.json           # 派生文件，从agents/*/portfolio_state.json重建
+├── data_cache/                    # 缓存的API响应
+│   ├── trade_cal.json             # 交易日历（独立缓存，月度刷新）
+│   └── {eval_date}/              # 按交易日分目录
+│       ├── *.json                 # 各类市场数据
+│       └── briefing.md            # 冻结的简报（crash recovery用）
+└── output/                        # 合并对比报告（用于小红书）
+    └── 2026-04-17.md
 ```
 
-## 核心流程：run_weekly.py
+## 核心概念
+
+### eval_date（评估日期）
+
+`eval_date` 是最近一个**已收盘**的交易日：
+- 交易日15:30后 → eval_date = 今天
+- 交易日15:30前或非交易日 → eval_date = 上一个交易日
+- 使用 `data_cache/trade_cal.json`（TuShare `trade_cal()`）解析，正确处理调休
+
+所有数据、简报、决策、报告都以 eval_date 为键。
+
+### 公平协议
+
+简报在步骤3冻结并缓存到磁盘。Claude在步骤4先做决策（看不到其他Agent的结果），然后步骤5才运行API Agent。所有Agent收到相同的冻结简报。
+
+**诚实说明**：Claude Code作为orchestrator，天然拥有比API Agent更丰富的上下文（它跑过数据脚本、看过原始API响应）。公平约束是荣誉制度——Claude只使用冻结简报做决策，但技术上无法强制执行。对于娱乐/研究项目，这是可接受的。
+
+### 幂等性
+
+- 每个决策包含 `eval_date` 字段
+- 应用前检查 agent 的 `last_eval_date` — 重复则拒绝
+- Session崩溃后重跑是安全的：已完成的Agent被跳过，冻结简报从磁盘加载
+
+## Orchestration 流程
+
+用户说"开始今天的评估"时：
 
 ```
-1. 加载 memory/ 下的所有记忆文件
-2. 调用 market_briefing.py 拉取本周市场数据：
-   - 大盘指数（上证/深证/创业板/沪深300）本周涨跌
-   - 申万一级行业板块涨跌排名
-   - 北向资金本周流向
-   - 本周重要新闻摘要（3-5条）
-   - Agent当前持仓标的的最新价格/涨跌
-3. 调用 performance.py 计算当前NAV和vs CSI300
-4. 组装完整prompt（system_prompt + memory + portfolio_state + market_briefing）
-5. 调用Claude API（claude-sonnet-4-20250514），获取决策输出
-6. 用 guardrails.py 验证输出中的交易指令：
-   - ticker是否存在于valid_tickers表
-   - 数量是否为100的整数倍
-   - 是否违反T+1（不能卖当天买入的）
-   - 单只仓位是否超过组合的50%（宽松上限）
-   - 组合级别回撤是否触发review（-15%）
-7. 通过验证 → 更新 portfolio_state.json，记录交易日志
-8. 未通过 → 输出警告，不执行，要求agent修正
-9. 生成 output/week_NNN.md 周报文件
-10. 触发 reflection.py 让agent回顾上一期决策结果，提取lessons
+1. 解析eval_date（最近已收盘交易日）
+2. 拉取数据（市场数据 + 新闻，缓存到 data_cache/{eval_date}/）
+3. 构建并冻结简报（缓存到 data_cache/{eval_date}/briefing.md）
+4. Claude做决策（使用冻结简报，先于API Agent）
+5. 运行API Agent（Gemini等，使用相同冻结简报）
+6. 生成报告（对比报告 + 各Agent报告，缺席Agent显示"未评估"）
 ```
+
+## Agent系统
+
+### AgentResult
+
+```python
+@dataclass
+class AgentResult:
+    status: Literal["decision", "error"]
+    decision: dict | None = None
+    error: str | None = None
+    raw_response: str | None = None
+```
+
+### BaseAgent接口
+
+```python
+class BaseAgent(ABC):
+    name: str
+    display_name: str
+
+    @abstractmethod
+    def decide(self, briefing: str, portfolio_state: dict, memory: dict) -> AgentResult: ...
+
+    def parse_response(self, raw: str) -> dict:
+        """从原始LLM输出中提取JSON。默认：去掉markdown代码块，找第一个有效JSON。"""
+        ...
+```
+
+Claude不在Agent注册表中——它是orchestrator。状态在 `agents/claude/`，决策逻辑在Claude Code session中。
+
+### 添加新Agent
+
+1. 在 `src/agents/<provider>_agent.py` 中继承 `BaseAgent`
+2. 实现 `decide()` 和可选的 `parse_response()`
+3. 在 `.env` 中添加 API key
+4. 在 `src/agents/registry.py` 中注册
+5. 下次运行时自动从 `memory_template/` 初始化 `agents/<name>/`
+
+## 数据层
+
+### 数据源级联（按数据类型）
+
+| 数据类型 | 主力 | 备用 | 兜底 |
+|---------|------|------|------|
+| 指数价格 | TuShare `index_daily` | BaoStock | 缓存 |
+| 个股价格 | TuShare `daily` | BaoStock | 缓存 |
+| 板块排名 | AKShare `stock_board_industry_*_em` | 缓存（尽力而为） | — |
+| 北向资金 | TuShare `moneyflow_hsgt` | AKShare | 缓存 |
+| 财务指标 | TuShare `fina_indicator`（非_vip） | AKShare | 缓存 |
+| 有效ticker | TuShare `stock_basic` | 缓存（周度刷新） | — |
+| 新闻 | `news_fetcher.py`（Eastmoney+财联社） | Claude WebSearch | "新闻暂不可用" |
+
+### 缓存策略
+
+- 交易日历：`data_cache/trade_cal.json`（独立缓存，月度刷新）
+- 市场数据：`data_cache/{eval_date}/*.json`
+- 冻结简报：`data_cache/{eval_date}/briefing.md`（crash recovery）
+- Ticker列表：周度刷新
+- 缓存过期：超过5个交易日的缓存数据用于NAV计算时发出警告
+
+## Guardrails（共享风控）
+
+所有Agent通过相同的 `guardrails.py` 验证：
+
+| 规则 | 值 |
+|------|------|
+| 单只最大仓位 | 50% |
+| 组合回撤熔断 | -15% |
+| 单只回撤review | -20% |
+| 每日最大交易数 | 10 |
+| 最小交易单位 | 100股 |
+| T+1 | 不能卖当天买入的 |
+| 最低日成交额 | ¥500万 |
+
+### 执行价格
+
+模拟交易使用市场数据中的**最新收盘价**作为执行价格。
+
+## Portfolio State（每Agent独立）
+
+`agents/<name>/portfolio_state.json` 是该Agent历史的**唯一数据源**。
+`track_record/nav_history.json` 是**派生文件**，每次评估后从所有Agent状态重建。
 
 ## System Prompt
 
-存放在 `src/agent/system_prompt.py` 中，作为模板字符串。
+共享模板，所有Agent使用相同的prompt。存放在 `src/briefing.py` 的模板字符串中。
+
 关键变量用 `{placeholder}` 注入：
-
-- `{memory_content}` — 从 memory/ 目录读取并拼接
+- `{memory_content}` — 从 agent 的 memory/ 目录读取
 - `{portfolio_state}` — 当前持仓明细 + NAV + vs基准
-- `{market_briefing}` — 本周市场数据
+- `{market_briefing}` — 冻结的市场简报
 
-完整prompt见下方 SYSTEM_PROMPT 部分。
+## Agent输出格式
 
-## Agent输出格式要求
-
-在system prompt中要求Claude以JSON输出决策，便于程序解析：
+所有Agent必须输出此JSON schema：
 
 ```json
 {
-  "market_view": "对当前市场的判断（2-3段文字）",
+  "eval_date": "2026-04-17",
+  "market_view": "对当前市场的判断",
   "decisions": [
     {
-      "action": "BUY",
+      "action": "BUY/SELL/HOLD",
       "ticker": "300750",
       "name": "宁德时代",
       "quantity": 100,
@@ -114,234 +239,38 @@ ai-fund-manager/
   "watchlist_updates": [
     {"ticker": "300308", "name": "中际旭创", "note": "等回调再看"}
   ],
-  "reflection": "对上期决策的回顾（如果有的话）",
-  "note_to_audience": "写给观众的一段话，坦诚、有个性"
-}
-```
-
-解析后再用模板渲染成可读的Markdown周报（output/week_NNN.md）。
-
-## 数据获取规格
-
-### market_briefing.py 需要拉取的数据
-
-**必须（TuShare Pro）**：
-- `pro.index_daily()` — 上证(000001.SH)、深证(399001.SZ)、创业板(399006.SZ)、沪深300(000300.SH)近5个交易日数据
-- `pro.index_weight()` — 沪深300成分股权重（用于基准计算）
-- `pro.daily()` — 当前持仓标的的日线数据
-- `pro.moneyflow()` — 北向资金净流入
-- `pro.stock_basic()` — 全量A股ticker列表（用于guardrails验证）
-- `pro.fina_indicator_vip()` — 持仓标的的最新财务指标（如需）
-
-**补充（AKShare）**：
-- `ak.stock_board_industry_name_em()` — 东方财富行业板块列表
-- `ak.stock_board_industry_hist_em()` — 板块涨跌历史
-- `ak.stock_news_em()` — 个股新闻
-- `ak.stock_hot_rank_em()` — 热门股排行（情绪指标）
-
-**新闻（简单HTTP）**：
-- 东方财富首页财经新闻RSS/JSON
-- 用requests抓取，提取标题+摘要即可，不需要全文
-
-### 数据缓存策略
-
-- 每次run拉取的数据缓存到 `data_cache/YYYY-MM-DD/` 目录
-- 避免重复调用API（TuShare有频率限制）
-- 缓存文件为JSON格式，debug时可直接查看
-
-## Guardrails（代码层风控）
-
-```python
-# src/agent/guardrails.py
-
-class AShareGuardrails:
-    """代码强制的风控规则 — 不依赖LLM判断"""
-
-    # 仓位限制
-    MAX_SINGLE_POSITION_PCT = 0.50      # 单只最大50%（宽松，让agent自由sizing）
-    MIN_CASH_BUFFER = 0.00              # 允许满仓（agent自己决定留多少现金）
-
-    # 灾难熔断
-    MAX_SINGLE_DRAWDOWN = 0.20          # 单只浮亏-20% → 标记，强制agent在下期review
-    MAX_PORTFOLIO_DRAWDOWN = 0.15       # 组合回撤-15% → 暂停开新仓，强制全面review
-
-    # 交易限制
-    MAX_TRADES_PER_WEEK = 10            # 防止过度交易
-    ROUND_LOT = 100                     # 最小交易单位
-
-    # A股特有
-    T_PLUS_1 = True                     # 不能卖当天买的
-    PRICE_LIMIT_MAIN = 0.10             # 主板涨跌停±10%
-    PRICE_LIMIT_STAR_CHINEXT = 0.20     # 科创板/创业板±20%
-    MIN_VOLUME_THRESHOLD = 5_000_000    # 日成交额最低500万（排除僵尸股）
-
-    def validate_order(self, order, portfolio, valid_tickers):
-        """验证单个交易指令，返回 (is_valid, error_message)"""
-        errors = []
-
-        # 1. Ticker存在性
-        if order.ticker not in valid_tickers:
-            errors.append(f"未知ticker: {order.ticker}")
-
-        # 2. 手数验证
-        if order.quantity <= 0 or order.quantity % self.ROUND_LOT != 0:
-            errors.append(f"数量必须为100的正整数倍，当前: {order.quantity}")
-
-        # 3. T+1验证
-        if order.action == "SELL" and order.ticker in portfolio.bought_today:
-            errors.append(f"T+1限制：{order.ticker}今日买入，不可当日卖出")
-
-        # 4. 仓位上限（买入时检查）
-        if order.action == "BUY":
-            new_position_value = order.quantity * order.estimated_price
-            new_portfolio_value = portfolio.total_value
-            if new_position_value / new_portfolio_value > self.MAX_SINGLE_POSITION_PCT:
-                errors.append(f"单只仓位超限: {new_position_value/new_portfolio_value:.1%} > {self.MAX_SINGLE_POSITION_PCT:.0%}")
-
-        # 5. 资金充足性
-        if order.action == "BUY":
-            cost = order.quantity * order.estimated_price
-            if cost > portfolio.cash:
-                errors.append(f"现金不足: 需要¥{cost:,.0f}，可用¥{portfolio.cash:,.0f}")
-
-        return (len(errors) == 0, errors)
-
-    def check_circuit_breakers(self, portfolio):
-        """检查熔断条件，返回 (is_triggered, trigger_type, message)"""
-        # 组合级别
-        if portfolio.total_return_pct <= -self.MAX_PORTFOLIO_DRAWDOWN:
-            return (True, "PORTFOLIO_HALT",
-                    f"组合回撤触发熔断: {portfolio.total_return_pct:.1%}。暂停开新仓，进入全面review。")
-
-        # 个股级别
-        flagged = []
-        for pos in portfolio.positions:
-            if pos.unrealized_return_pct <= -self.MAX_SINGLE_DRAWDOWN:
-                flagged.append(f"{pos.name}({pos.ticker}) 浮亏{pos.unrealized_return_pct:.1%}")
-
-        if flagged:
-            return (True, "POSITION_REVIEW",
-                    f"以下持仓触发单只review阈值：{'; '.join(flagged)}")
-
-        return (False, None, None)
-```
-
-## 周报模板（output渲染）
-
-```markdown
-# 🤖 AI基金经理·第{week_number}期周报｜{date}
-
-**组合净值：¥{nav:,.0f}（{total_return:+.2%}）| 同期CSI300：{benchmark_return:+.2%}**
-
----
-
-### 市场判断
-
-{market_view}
-
-### 本期操作
-
-{formatted_decisions}
-
-### 观察名单
-
-{formatted_watchlist}
-
-### 写给观众
-
-{note_to_audience}
-
----
-
-*本组合由Claude AI独立决策，仅供娱乐和研究，不构成投资建议。*
-```
-
-## 开发步骤
-
-### Step 1: 环境搭建
-- 创建项目目录和虚拟环境
-- 安装依赖：tushare, akshare, anthropic, python-dotenv
-- 配置 .env（TUSHARE_TOKEN, ANTHROPIC_API_KEY）
-- 初始化 memory/ 目录和 portfolio_state.json（100%现金）
-
-### Step 2: 数据层
-- 实现 tushare_client.py（封装常用API调用）
-- 实现 market_briefing.py（拉取并格式化市场数据）
-- 测试：能成功拉取本周数据并输出可读的markdown briefing
-
-### Step 3: Agent核心
-- 实现 system_prompt.py（prompt模板）
-- 实现 decision_engine.py（调Claude API + 解析JSON输出）
-- 实现 guardrails.py（验证层）
-- 测试：能成功产出一轮决策
-
-### Step 4: 状态管理
-- 实现 portfolio/state.py（读写持仓状态）
-- 实现 portfolio/performance.py（NAV计算 + vs基准）
-- 实现 memory/manager.py（读写记忆文件）
-
-### Step 5: 整合
-- 实现 run_weekly.py（串联所有模块）
-- 实现 output渲染（JSON → Markdown周报）
-- 端到端测试：跑完一轮完整流程
-
-### Step 6: 反思机制
-- 实现 memory/reflection.py
-- 每期结束后自动生成lessons
-- 注入下一期的memory_content
-
-## SYSTEM_PROMPT
-
-```
-你是一位管理10万元人民币A股模拟组合的独立基金经理。你拥有完全的投资决策权。
-
-【你是谁】
-你有自己的投资风格和判断力。你不是一个信息聚合器——你是一个有观点的投资者。
-你会犯错，但你从错误中学习。你敢于持有与市场共识不同的观点，但只在你有充分
-理由时才这样做。你不追涨杀跌，你寻找别人还没看到的机会。
-
-【决策框架】
-对于每一个投资决策，你必须产出结构化的思考：
-
-1. THESIS（核心逻辑）：用2-3句话说清楚为什么买这个标的。
-2. CATALYST（催化剂）：未来1-6个月内，什么会让市场认识到价值？
-3. RISK（风险）：最大的下行风险是什么？
-4. SIZING（仓位）：你有多确信？高确信=大仓位。
-5. INVALIDATION（失效条件）：什么情况发生意味着thesis错了？
-
-【约束】
-- 投资范围：A股股票、ETF。
-- 持有现金是完全可以接受的决策。
-- 考虑T+1交易规则。
-- 交易数量为100股的整数倍。
-- 你的推理过程会被公开展示。坦诚、清晰、有个性。不写官话。
-
-【输出格式】
-你必须以JSON格式输出决策。结构如下：
-{
-  "market_view": "...",
-  "decisions": [{"action":"BUY/SELL/HOLD","ticker":"...","name":"...","quantity":100,"reason":{...}}],
-  "watchlist_updates": [{"ticker":"...","name":"...","note":"..."}],
   "reflection": "对上期决策的回顾",
   "note_to_audience": "写给观众的一段话"
 }
+```
 
-【记忆】
-{memory_content}
+## 反思机制
 
-【当前持仓】
-{portfolio_state}
+反思嵌入在简报中，不是独立步骤：
+- 每次评估的简报包含"上期回顾"，展示上期决策的实际结果
+- Agent在 `reflection` 字段中回顾
+- `investment_beliefs.md` 随时间积累更新
 
-【本周市场数据】
-{market_briefing}
+## 依赖
 
-现在请做出本期投资决策。
+```
+tushare>=1.4.0
+akshare==1.14.85           # 锁定版本 — AKShare跨版本易崩
+baostock
+google-generativeai>=0.8.0
+python-dotenv>=1.0.0
+requests>=2.31.0
 ```
 
 ## 注意事项
 
-- TuShare Pro 5000积分，注意API调用频率（每分钟200次上限），做好缓存
-- AKShare接口不稳定，经常更新，用try/except包裹，失败时fallback到缓存数据
-- Claude API用 claude-sonnet-4-20250514 模型（性价比最优）
-- JSON输出可能偶尔格式不对，做好解析容错（提取```json```代码块）
-- portfolio_state.json 是最重要的文件，每次写入前先备份
+- TuShare Pro 5000积分，200次/分钟限制，做好缓存
+- AKShare接口不稳定，用try/except包裹，失败时fallback
+- 交易日历用 TuShare `trade_cal()` 解析（处理调休），缓存到 `data_cache/trade_cal.json`
+- JSON输出可能格式不对，`parse_response()` 做好容错（提取代码块）
+- `portfolio_state.json` 最重要——原子写入（写临时文件再rename）
+- 冻结简报缓存到磁盘，确保session崩溃后重跑的一致性
+
+## 完整设计文档
+
+详见 `docs/superpowers/specs/2026-04-17-multi-agent-fund-manager-design.md`

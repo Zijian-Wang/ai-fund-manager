@@ -1,6 +1,6 @@
 tushare>=1.4.0
-akshare>=1.14.0
+akshare==1.14.85
 baostock
-anthropic>=0.40.0
+google-generativeai>=0.8.0
 python-dotenv>=1.0.0
 requests>=2.31.0

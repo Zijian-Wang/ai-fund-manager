@@ -1,4 +1,4 @@
-# Multi-Agent AI Fund Manager — Design Spec (v2)
+# Multi-Agent AI Fund Manager — Design Spec (v2.1)
 
 ## Overview
 
@@ -21,45 +21,72 @@ A multi-agent A-share simulated fund manager where multiple AI providers indepen
 When the user says "start today's eval":
 
 ```
-1. FETCH DATA
-   Claude Code uses web tools (WebSearch, WebFetch) to gather:
-   - Financial news from Eastmoney JSON API + 财联社
-   - General market sentiment via web search
+1. RESOLVE EVAL DATE
+   Determine the eval_date = the most recent COMPLETED trading day:
+   - After 15:30 Beijing time on a trading day → eval_date = today
+   - Before 15:30 or on a non-trading day → eval_date = previous trading day
+   - Use cached trade_cal.json (see Caching section) to resolve holidays
+   Check idempotency: if all agents already have last_eval_date == eval_date, stop.
+
+2. FETCH DATA
    Claude Code runs Python data scripts to pull:
    - Index data, sector rankings, northbound flow (TuShare/AKShare/BaoStock)
    - Current prices for all agents' holdings
-   All data cached to data_cache/{latest_trading_date}/
+   All structured data cached to data_cache/{eval_date}/
+   Claude Code runs news_fetcher.py to pull structured news:
+   - Eastmoney JSON API headlines
+   - 财联社 telegraph items
+   Claude Code uses WebSearch/WebFetch for supplementary context:
+   - Macro policy news, breaking stories, market sentiment
+   All news merged and deduplicated.
 
-2. BUILD SHARED BRIEFING
+3. BUILD + FREEZE BRIEFING
    Assemble a single Markdown briefing from all fetched data.
+   Save frozen briefing to data_cache/{eval_date}/briefing.md
    >>> BRIEFING FROZEN HERE — no more web fetches after this point <<<
+   On re-run: if briefing.md already exists, load it instead of re-assembling.
 
-3. RUN API AGENTS
+4. CLAUDE DECIDES (before API agents — no information advantage)
+   Using the frozen briefing + own portfolio state + memory:
+   - Produce JSON decision
+   - Save raw decision to agents/claude/trade_journal/{eval_date}.json
+   - Validate through guardrails
+   - If valid: update portfolio state
+   - If invalid: log errors, skip Claude for this eval
+
+5. RUN API AGENTS
    For each API agent (Gemini, future others):
    - Load agent's portfolio state + memory
    - Call agent.decide(briefing, state, memory) via Python
    - Parse response via agent's parse_response() method
+   - Save raw response to agents/{name}/trade_journal/{eval_date}.json
    - Validate through shared guardrails
    - If valid: update portfolio, record trade
    - If invalid: log errors, skip this agent today
+   One retry with 30s backoff on transient API errors (timeout, rate limit).
 
-4. CLAUDE DECIDES
-   Using the SAME frozen briefing (not additional web data):
-   - Read own portfolio state + memory
-   - Produce JSON decision
-   - Validate through same guardrails
-   - If valid: update portfolio, record trade
-
-5. GENERATE REPORTS
+6. GENERATE REPORTS
    - Update each agent's track record
    - Rebuild track_record/nav_history.json from all agents' states
-   - Generate comparison report to output/
+   - Generate comparison report to output/ (with whatever agents completed)
    - Generate per-agent reports to agents/<name>/output/
+   Reports are generated even if some agents failed — show "未评估" for missing agents.
 ```
 
 ### Fairness Protocol
 
-The shared briefing is frozen after step 2. Claude uses the identical briefing that API agents receive. No additional web searches during step 4. The competition is same-input, different-brain.
+The shared briefing is frozen after step 3 and cached to disk. Claude decides **before** API agents (step 4 before step 5), so Claude cannot see other agents' decisions. All agents receive the identical frozen briefing.
+
+**Honest limitation**: Claude Code is the orchestrator, so it inherently has richer session context (it ran the data scripts, saw raw API responses, etc.) than API agents who only see the formatted briefing string. This is an honor-system constraint — Claude uses only the frozen briefing for its decision, but this is not technically enforced. For an entertainment/research project, this is acceptable. The "Claude Pro mode" (see Future Considerations) may later opt in to using this extra context explicitly.
+
+### Crash Recovery
+
+If a Claude Code session dies mid-eval:
+- **Steps 1-3** are safe to redo — data is cached, and the frozen `briefing.md` is reused on re-run.
+- **Steps 4-5**: The idempotency check (`last_eval_date`) prevents double-application for agents that already completed. Agents that hadn't started yet run normally.
+- **Step 6**: Reports regenerate from current state, so they are always correct after re-run.
+
+The key invariant: **the frozen briefing is cached to disk before any decisions are made**. This ensures a re-run produces the same briefing, maintaining fairness even across session crashes.
 
 ## Directory Structure
 
@@ -217,24 +244,50 @@ Not all sources can provide all data types. Cascade is data-type-specific:
 
 ### Caching
 
-- Cache directory: `data_cache/{latest_trading_date}/` — keyed by **latest trading date**, not run date
-- Use `trade_cal()` or a simple weekend/holiday check to resolve the correct trading date
+- **`eval_date`** is always the most recent **completed** trading day (see step 1 of Orchestration Flow). This is the trading date, NOT the calendar/run date. All data, briefings, and decisions are keyed by `eval_date`.
+- Cache directory: `data_cache/{eval_date}/` — keyed by eval_date
+- **Trading calendar**: `data_cache/trade_cal.json` is cached separately (not under a date-keyed dir — avoids chicken-and-egg). Refreshed monthly or when it doesn't cover the current date range. Uses TuShare `trade_cal()` which handles Chinese holidays and compensatory workdays (调休) correctly. Simple weekend checks are insufficient for A-share markets.
 - Cache files are JSON, human-readable for debugging
 - `stock_basic` (ticker list) cached weekly, not daily — it changes rarely
+- **Frozen briefing**: `data_cache/{eval_date}/briefing.md` — the assembled briefing is cached after step 3. On re-run, this file is loaded instead of re-assembling, ensuring idempotent re-runs produce the same briefing.
+- **Cache staleness**: If no primary or fallback source can provide data and cache is older than 5 trading days, the eval should warn and proceed with partial data rather than silently using stale prices for NAV calculation.
 - Atomic writes: write to temp file, then rename, to prevent partial reads
 
 ### News Fetching
 
-**For API agents** (`news_fetcher.py`):
-- Primary: Eastmoney JSON API (`newsapi.eastmoney.com/kuaixun/v1/getlist_*`) — returns clean JSON, no scraping needed
-- Backup: 财联社 (cls.cn) telegraph — timestamped rapid news
-- Graceful degradation: if both fail, briefing says "新闻数据暂不可用" and agents decide on price data alone
+News is assembled in two layers with a clear merge order:
 
-**For Claude**: During step 1, Claude Code uses `WebFetch`/`WebSearch` to gather news, which gets incorporated into the shared briefing. After the briefing is frozen, Claude uses only the briefing.
+**Layer 1 — Structured news** (`news_fetcher.py`, primary):
+- Eastmoney JSON API (`newsapi.eastmoney.com/kuaixun/v1/getlist_*`) — returns clean JSON, no scraping
+- 财联社 (cls.cn) telegraph — timestamped rapid news
+- Returns a structured list of `{title, summary, source, timestamp}`
+- This is the baseline news that ALL agents see
+
+**Layer 2 — Supplementary context** (Claude Code web tools, additive):
+- Claude Code uses `WebSearch`/`WebFetch` for macro policy news, breaking stories, market sentiment
+- These are appended to the briefing under a separate "补充资讯" heading
+- Only added if Layer 1 succeeds — web tools do NOT replace structured news
+- If Layer 1 fails entirely, Claude Code web tools become the sole news source
+
+**Merge order in briefing**: Layer 1 headlines first (under "新闻摘要"), Layer 2 items second (under "补充资讯"). This makes it clear what is structured data vs. supplementary.
+
+**Graceful degradation**: If both layers fail, briefing says "新闻数据暂不可用" and agents decide on price data alone. News is supplementary — agents can make sound decisions from price and sector data.
 
 ## Briefing Format
 
-`briefing.py` assembles a single Markdown string from market data + news. Split into two parts:
+`briefing.py` assembles the briefing in two parts via explicit functions:
+
+```python
+def build_shared_briefing(market_data: dict, news: list) -> str:
+    """Build the shared market section. Same for all agents."""
+    ...
+
+def build_agent_briefing(shared: str, agent_name: str, state: dict, prev_trades: list) -> str:
+    """Append per-agent holdings, performance, and 上期回顾 to the shared briefing."""
+    ...
+```
+
+Split into two parts:
 
 ### Shared Section (identical for all agents)
 
@@ -300,14 +353,18 @@ All agents go through identical validation in `guardrails.py`:
 
 ### Idempotency (C2 fix)
 
-Each decision includes a `eval_date` field matching the current evaluation date. Before applying:
+Each decision includes an `eval_date` field — the **trading date** (most recent completed trading day), resolved in step 1 of the orchestration flow. Before applying any decision:
 
-1. Check `eval_date` matches today's date (or the intended eval date)
+1. Check decision's `eval_date` matches the current eval's resolved trading date
 2. Check agent's `last_eval_date` in portfolio state — reject if already evaluated for this date
 3. After successful application, set `last_eval_date = eval_date`
 4. Trade journal entry named `{eval_date}.json`, not sequential
 
-This prevents double-application and stale decision application.
+This prevents double-application and stale decision application. On session crash + re-run, agents that already completed are safely skipped.
+
+### Execution Price
+
+Trades use the **latest close price** from market data as the simulated execution price. Since this is a simulation with human execution on the next trading day, close price is a reasonable approximation. The actual execution price (if the user executes manually) may differ slightly.
 
 ## Portfolio State (Per Agent)
 
