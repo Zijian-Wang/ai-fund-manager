@@ -7,7 +7,7 @@
 - **初始资金**：每个Agent ¥100,000
 - **投资范围**：A股股票、ETF（不做期货/期权）
 - **决策频率**：每日（按需触发）
-- **执行方式**：Claude Code 为总指挥，API Agent自动运行，Claude自己也做决策
+- **执行方式**：Claude Code 为总指挥，API Agent自动运行，Claude通过隔离子Agent决策
 - **业绩基准**：CSI 300（沪深300指数）
 
 ## 技术架构
@@ -15,11 +15,21 @@
 **Claude Code 是 orchestrator**。用户说"开始今天的评估"，Claude Code 完成所有工作：
 1. 拉取市场数据和新闻
 2. 构建冻结的共享简报
-3. Claude自己先做决策（避免看到其他Agent结果）
-4. 调用API Agent（Gemini等）
+3. **生成隔离子Agent**做Claude的决策（只拿到冻结简报，无web访问，无session上下文——技术层面的公平保障）
+4. 调用API Agent（Gemini等，使用相同冻结简报）
 5. 生成对比报告
 
 **没有独立的 `run_weekly.py` 脚本**——Claude Code 就是流水线本身。
+
+### Claude子Agent
+
+Claude的投资决策由一个**隔离的Claude Code子Agent**执行：
+- **模型**：opus（可配置，一行切换到下一代模型如 4.7）
+- **输入**：仅冻结简报 + Claude的持仓状态 + 记忆 + system prompt
+- **限制**：无web工具、无原始API数据、无其他Agent结果
+- **输出**：JSON决策
+
+这确保Claude和API Agent在信息层面完全对等——公平不靠自觉，靠隔离。
 
 ## 技术栈
 
@@ -27,7 +37,7 @@
 - 数据源：TuShare Pro（主力）、AKShare（备用，版本锁定）、BaoStock（零配置兜底）
 - 新闻：Eastmoney JSON API + 财联社 + Claude Code WebSearch
 - AI Agent：Gemini API（`google-generativeai`），未来可加 DeepSeek/GPT
-- Claude：通过 Claude Code session 直接决策（无需 Anthropic API key）
+- Claude：通过隔离的 Claude Code 子Agent 决策（模型: opus，无需 Anthropic API key）
 - 存储：本地 JSON/Markdown 文件
 
 ## 项目结构
@@ -101,7 +111,7 @@ ai-fund-manager/
 
 简报在步骤3冻结并缓存到磁盘。Claude在步骤4先做决策（看不到其他Agent的结果），然后步骤5才运行API Agent。所有Agent收到相同的冻结简报。
 
-**诚实说明**：Claude Code作为orchestrator，天然拥有比API Agent更丰富的上下文（它跑过数据脚本、看过原始API响应）。公平约束是荣誉制度——Claude只使用冻结简报做决策，但技术上无法强制执行。对于娱乐/研究项目，这是可接受的。
+Claude的决策由隔离子Agent执行，只接收冻结简报——和API Agent信息对等，技术层面保障公平。
 
 ### 幂等性
 
@@ -150,7 +160,7 @@ class BaseAgent(ABC):
         ...
 ```
 
-Claude不在Agent注册表中——它是orchestrator。状态在 `agents/claude/`，决策逻辑在Claude Code session中。
+Claude不在Python Agent注册表中——由orchestrator生成隔离子Agent处理。状态在 `agents/claude/`，决策逻辑在隔离子Agent中运行（模型: opus，可一行升级）。
 
 ### 添加新Agent
 

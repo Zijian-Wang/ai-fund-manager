@@ -10,7 +10,7 @@ A multi-agent A-share simulated fund manager where multiple AI providers indepen
 
 ## Constraints
 
-- **No Anthropic API key**. Claude decisions are made by the orchestrating Claude Code session itself.
+- **No Anthropic API key**. Claude decisions are made via an isolated Claude Code subagent (not the orchestrator session).
 - **Gemini API key available**. Gemini decisions are made programmatically via Python.
 - **Future providers** (DeepSeek, GPT, etc.) should be easy to add.
 - **Data sources**: TuShare Pro (primary), AKShare (backup), BaoStock (fallback). TuShare has 5000 credits and 200 calls/min rate limit.
@@ -46,11 +46,14 @@ When the user says "start today's eval":
    >>> BRIEFING FROZEN HERE — no more web fetches after this point <<<
    On re-run: if briefing.md already exists, load it instead of re-assembling.
 
-4. CLAUDE DECIDES (before API agents — no information advantage)
-   Using the frozen briefing + own portfolio state + memory:
-   - Produce JSON decision
-   - Save raw decision to agents/claude/trade_journal/{eval_date}.json
-   - Validate through guardrails
+4. CLAUDE DECIDES (via isolated subagent — technically enforced fairness)
+   The orchestrator spawns a Claude Code subagent with:
+   - Model: opus (configurable, e.g. opus 4.6 → 4.7 on upgrade)
+   - Input: ONLY the frozen briefing + Claude's portfolio state + memory + system prompt
+   - No web tools, no session context, no knowledge of other agents' results
+   The subagent returns a JSON decision. The orchestrator then:
+   - Saves raw decision to agents/claude/trade_journal/{eval_date}.json
+   - Validates through guardrails
    - If valid: update portfolio state
    - If invalid: log errors, skip Claude for this eval
 
@@ -75,9 +78,14 @@ When the user says "start today's eval":
 
 ### Fairness Protocol
 
-The shared briefing is frozen after step 3 and cached to disk. Claude decides **before** API agents (step 4 before step 5), so Claude cannot see other agents' decisions. All agents receive the identical frozen briefing.
+**Technically enforced** via isolated subagent:
 
-**Honest limitation**: Claude Code is the orchestrator, so it inherently has richer session context (it ran the data scripts, saw raw API responses, etc.) than API agents who only see the formatted briefing string. This is an honor-system constraint — Claude uses only the frozen briefing for its decision, but this is not technically enforced. For an entertainment/research project, this is acceptable. The "Claude Pro mode" (see Future Considerations) may later opt in to using this extra context explicitly.
+1. The shared briefing is frozen after step 3 and cached to disk.
+2. Claude's decision is made by a **separate subagent** that receives ONLY the frozen briefing, portfolio state, and memory — the same information API agents get. The subagent has no web tools, no raw API data, no session context from the orchestrator.
+3. Claude decides before API agents (step 4 before step 5), so it cannot see other agents' results.
+4. All agents receive the identical frozen briefing.
+
+This eliminates the "honor system" problem from v2 — fairness is now a technical guarantee, not a convention. The orchestrator assembles the input, but the decision-making is isolated.
 
 ### Crash Recovery
 
@@ -162,7 +170,7 @@ class AgentResult:
     raw_response: str | None = None    # Raw LLM output for debugging
 ```
 
-No more `None`-means-interactive ambiguity. Claude Code doesn't go through the `BaseAgent` interface — it makes decisions directly in the session.
+No more `None`-means-interactive ambiguity. Claude's decision is made by an isolated subagent spawned by the orchestrator — it doesn't go through the `BaseAgent` Python interface, but it receives the same information as API agents.
 
 ### BaseAgent Interface
 
@@ -212,7 +220,7 @@ def get_active_agents() -> list[BaseAgent]:
     ...
 ```
 
-Claude is NOT in the registry — it's the orchestrator, not a registered agent. Its state lives in `agents/claude/` but its decision logic lives in the Claude Code session.
+Claude is NOT in the Python agent registry — it's handled by the orchestrator via a subagent spawn. Its state lives in `agents/claude/` and its decision logic runs in an isolated Claude Code subagent (model: opus, configurable). To upgrade Claude's model (e.g. opus 4.6 → 4.7), change the model parameter in the subagent spawn — one line.
 
 ## Data Layer
 
@@ -613,4 +621,5 @@ All agents must output this exact schema. `parse_response()` handles provider-sp
 - **More agents**: DeepSeek, GPT, Qwen — just subclass + register
 - **Charts**: Generate equity curves from `track_record/nav_history.json` (matplotlib or HTML)
 - **小红书 formatting**: Summary mode for 4+ agents (table + one highlight each)
-- **Claude Pro mode**: A variant where Claude gets extra web access beyond the shared briefing (opt-in, clearly labeled in reports)
+- **Claude Pro mode**: A variant where Claude runs as the orchestrator itself (not isolated subagent) with full web access — opt-in, clearly labeled in reports as "unfair advantage" for entertainment value
+- **Model upgrades**: Swap Claude's subagent model in one line (e.g. `model: "opus"` → next-gen model)
