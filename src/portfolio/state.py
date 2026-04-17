@@ -209,3 +209,29 @@ def load_prev_decision(
     if not last:
         return None
     return read_json(_trade_journal_path(agent_name, last, agents_root))
+
+
+_MEMORY_EXCLUDE_NAMES = {"portfolio_state", "portfolio_state.json"}
+_MEMORY_INCLUDE_SUFFIXES = {".md", ".json", ".txt"}
+
+
+def load_agent_memory(*, agent_name: str, agents_root: Path) -> dict[str, str]:
+    """Return {basename: file_content} for the agent's memory files.
+
+    Includes top-level .md / .json / .txt files. Excludes portfolio_state.json
+    (that's state, not memory) and directories like trade_journal/.
+    """
+    agent_dir = Path(agents_root) / agent_name
+    if not agent_dir.is_dir():
+        return {}
+
+    memory: dict[str, str] = {}
+    for entry in sorted(agent_dir.iterdir()):
+        if not entry.is_file():
+            continue
+        if entry.suffix not in _MEMORY_INCLUDE_SUFFIXES:
+            continue
+        if entry.stem in _MEMORY_EXCLUDE_NAMES or entry.name in _MEMORY_EXCLUDE_NAMES:
+            continue
+        memory[entry.stem] = entry.read_text(encoding="utf-8")
+    return memory

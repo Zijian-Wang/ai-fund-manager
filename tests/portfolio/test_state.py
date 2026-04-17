@@ -418,3 +418,57 @@ def test_load_prev_decision_returns_none_when_file_missing(
     assert load_prev_decision(
         state=state, agent_name="gemini", agents_root=agents_root
     ) is None
+
+
+from src.portfolio.state import load_agent_memory
+
+
+def test_load_agent_memory_reads_md_and_json_files(template_root, agents_root):
+    # Seed the template with the memory files the spec describes
+    (template_root / "investment_beliefs.md").write_text(
+        "# 投资信念\n\nbuy low sell high", encoding="utf-8"
+    )
+    (template_root / "market_regime.md").write_text(
+        "# 市场体制\n\nbull market", encoding="utf-8"
+    )
+    (template_root / "watchlist.json").write_text(
+        '{"watchlist": []}', encoding="utf-8"
+    )
+    (template_root / "trade_journal").mkdir()
+
+    init_agent_state(
+        agent_name="gemini",
+        agents_root=agents_root,
+        template_root=template_root,
+        inception_date="2026-04-17",
+    )
+    memory = load_agent_memory(agent_name="gemini", agents_root=agents_root)
+    assert "investment_beliefs" in memory
+    assert memory["investment_beliefs"].startswith("# 投资信念")
+    assert "market_regime" in memory
+    assert "watchlist" in memory
+
+
+def test_load_agent_memory_excludes_portfolio_state_and_dirs(
+    template_root, agents_root
+):
+    (template_root / "investment_beliefs.md").write_text("...", encoding="utf-8")
+    (template_root / "trade_journal").mkdir()
+    (template_root / "lessons").mkdir()
+    init_agent_state(
+        agent_name="gemini",
+        agents_root=agents_root,
+        template_root=template_root,
+        inception_date="2026-04-17",
+    )
+    memory = load_agent_memory(agent_name="gemini", agents_root=agents_root)
+    # portfolio_state is structured state, not memory
+    assert "portfolio_state" not in memory
+    # Directories aren't memory entries
+    assert "trade_journal" not in memory
+    assert "lessons" not in memory
+
+
+def test_load_agent_memory_returns_empty_when_agent_dir_missing(agents_root):
+    memory = load_agent_memory(agent_name="noone", agents_root=agents_root)
+    assert memory == {}
