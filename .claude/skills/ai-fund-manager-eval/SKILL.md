@@ -86,7 +86,7 @@ for name in AGENTS:
     )
     for pos in st.get("positions", []):
         tk = pos["ticker"]
-        suffix = ".SH" if tk.startswith("6") else ".BJ" if tk.startswith(("4","8")) else ".SZ"
+        suffix = ".SH" if tk.startswith(("5","6")) else ".BJ" if tk.startswith(("4","8")) else ".SZ"
         all_holdings.add(f"{tk}{suffix}")
 
 market_data = fetch_market_data(
@@ -290,7 +290,11 @@ volumes = extract_stock_volumes_yuan(market_data)
 
 # Pre-fetch price/volume for BUY tickers not in holdings
 def _suffix(tk):
-    if tk.startswith("6"): return ".SH"
+    # A-share exchange routing for 6-digit symbols:
+    #   5xx / 6xx (incl. 688 STAR, 5xx ETFs)      → Shanghai
+    #   4xx / 8xx (Beijing Exchange)               → Beijing
+    #   else: 0xx/1xx/3xx (stocks + 159xxx ETFs)   → Shenzhen
+    if tk.startswith(("5","6")): return ".SH"
     if tk.startswith(("4","8")): return ".BJ"
     return ".SZ"
 for d in decision.get("decisions", []):

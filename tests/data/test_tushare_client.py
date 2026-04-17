@@ -137,6 +137,19 @@ def test_fund_basic_filters_etf_listed(client, mock_pro):
     assert df.iloc[0]["name"] == "芯片ETF国泰"
 
 
+def test_fund_daily_passes_dates(client, mock_pro):
+    mock_pro.fund_daily.return_value = pd.DataFrame(
+        {"ts_code": ["512480.SH"], "trade_date": ["20260417"], "close": [1.628]}
+    )
+    df = client.fund_daily(
+        ts_code="512480.SH", start_date="20260413", end_date="20260417"
+    )
+    mock_pro.fund_daily.assert_called_once_with(
+        ts_code="512480.SH", start_date="20260413", end_date="20260417"
+    )
+    assert df.iloc[0]["close"] == 1.628
+
+
 def test_moneyflow_hsgt_passes_dates(client, mock_pro):
     mock_pro.moneyflow_hsgt.return_value = pd.DataFrame(
         {"trade_date": ["20260417"], "north_money": ["292500.49"]}

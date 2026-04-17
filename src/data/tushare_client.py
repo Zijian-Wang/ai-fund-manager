@@ -110,6 +110,15 @@ class TuShareClient:
         self._throttle()
         return self._pro.fund_basic(market="E", status="L")
 
+    def fund_daily(
+        self, *, ts_code: str, start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        """Daily OHLCV for ETFs (same column shape as ``daily``)."""
+        self._throttle()
+        return self._pro.fund_daily(
+            ts_code=ts_code, start_date=start_date, end_date=end_date
+        )
+
     def moneyflow_hsgt(self, *, start_date: str, end_date: str) -> pd.DataFrame:
         self._throttle()
         return self._pro.moneyflow_hsgt(start_date=start_date, end_date=end_date)

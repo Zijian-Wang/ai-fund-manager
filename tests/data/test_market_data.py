@@ -154,6 +154,25 @@ def test_fetch_stock_5d_uses_tushare(tmp_cache_dir):
     assert result["rows"][0]["close"] == 192.30
 
 
+def test_fetch_stock_5d_falls_back_to_fund_daily_for_etf(tmp_cache_dir):
+    """TuShare's `daily` returns zero rows for ETF ts_codes; `fund_daily` has them."""
+    ts = MagicMock()
+    ts.daily.return_value = pd.DataFrame()  # empty — ETF
+    ts.fund_daily.return_value = pd.DataFrame(
+        {"trade_date": ["20260417"], "close": [1.628], "amount": [1006981.13]}
+    )
+    result = fetch_stock_5d(
+        ts_code="512480.SH",
+        eval_date="2026-04-17",
+        cache_root=tmp_cache_dir,
+        tushare=ts,
+        baostock=MagicMock(),
+    )
+    assert result["source"] == "tushare_fund"
+    assert result["rows"][0]["close"] == 1.628
+    ts.fund_daily.assert_called_once()
+
+
 def test_fetch_stock_5d_falls_back_to_baostock(tmp_cache_dir):
     ts = MagicMock()
     ts.daily.side_effect = RuntimeError("ts down")

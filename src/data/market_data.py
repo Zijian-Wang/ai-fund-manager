@@ -101,6 +101,12 @@ def fetch_stock_5d(
     tushare: Any,
     baostock: Any,
 ) -> dict:
+    """Fetch 5-day OHLCV for a stock OR ETF, transparent to the caller.
+
+    Cascade: TuShare ``daily`` (stocks) → TuShare ``fund_daily`` (ETFs) →
+    BaoStock → cache. The stock endpoint returns zero rows silently for
+    ETF ts_codes, so we treat "no rows" as "try fund_daily next".
+    """
     cache_path = cache_dir_for(cache_root, eval_date) / f"stock_{ts_code}.json"
     errors: list[str] = []
 
@@ -110,11 +116,26 @@ def fetch_stock_5d(
             start_date=_start_yyyymmdd(eval_date),
             end_date=_yyyymmdd(eval_date),
         )
-        result = {"source": "tushare", "rows": df.to_dict(orient="records")}
-        write_json_atomic(cache_path, result)
-        return result
+        if len(df) > 0:
+            result = {"source": "tushare", "rows": df.to_dict(orient="records")}
+            write_json_atomic(cache_path, result)
+            return result
+        # Empty — likely an ETF ts_code; fall through to fund_daily
     except Exception as exc:  # noqa: BLE001
-        errors.append(f"tushare: {exc}")
+        errors.append(f"tushare.daily: {exc}")
+
+    try:
+        df = tushare.fund_daily(
+            ts_code=ts_code,
+            start_date=_start_yyyymmdd(eval_date),
+            end_date=_yyyymmdd(eval_date),
+        )
+        if len(df) > 0:
+            result = {"source": "tushare_fund", "rows": df.to_dict(orient="records")}
+            write_json_atomic(cache_path, result)
+            return result
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"tushare.fund_daily: {exc}")
 
     try:
         rows = baostock.stock_daily(
