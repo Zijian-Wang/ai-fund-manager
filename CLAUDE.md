@@ -178,11 +178,12 @@ Claude不在Python Agent注册表中——由orchestrator生成隔离子Agent处
 |---------|------|------|------|
 | 指数价格 | TuShare `index_daily` | BaoStock | 缓存 |
 | 个股价格 | TuShare `daily` | BaoStock | 缓存 |
-| 板块排名 | AKShare `stock_board_industry_*_em` | 缓存（尽力而为） | — |
-| 北向资金 | TuShare `moneyflow_hsgt` | AKShare | 缓存 |
-| 财务指标 | TuShare `fina_indicator`（非_vip） | AKShare | 缓存 |
+| 板块排名 | AKShare `stock_board_industry_name_em`（含retry/backoff） | 缓存 | — |
+| 北向资金 | TuShare `moneyflow_hsgt` | 缓存 | — |
 | 有效ticker | TuShare `stock_basic` | 缓存（周度刷新） | — |
 | 新闻 | `news_fetcher.py`（Eastmoney+财联社） | Claude WebSearch | "新闻暂不可用" |
+
+**注**：AKShare 的 northbound 和 fina_indicator 端点（`datacenter-web.eastmoney.com`）在我们的环境中不可达——已从级联中删除。`fina_indicator` 推迟到由 guardrails 实际消费时再加。
 
 ### 缓存策略
 
@@ -265,9 +266,9 @@ Claude不在Python Agent注册表中——由orchestrator生成隔离子Agent处
 
 ```
 tushare>=1.4.0
-akshare==1.14.85           # 锁定版本 — AKShare跨版本易崩
+akshare>=1.18,<2           # 1.14.85 在 Python 3.14 上不可用；major 锁定
 baostock
-google-generativeai>=0.8.0
+google-generativeai>=0.8.0  # 上游已弃用，需迁移到 google.genai
 python-dotenv>=1.0.0
 requests>=2.31.0
 ```

@@ -16,10 +16,13 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from src.data.cache import cache_dir_for, read_json, write_json_atomic
+from src.data.cache import cache_dir_for, is_stale, read_json, write_json_atomic
 
 
 INDICES = ("000001.SH", "399001.SZ", "399006.SZ", "000300.SH")
+
+# stock_basic refreshes weekly — TuShare's listed-stock list changes rarely
+_TICKER_CACHE_MAX_AGE_DAYS = 7
 
 # Lookback window for "last 5 trading days" — fetch 12 calendar days to
 # cover weekends + holidays.
@@ -171,6 +174,29 @@ def fetch_northbound_5d(
         if cached is not None:
             return {"source": "cache", "rows": cached["rows"]}
         return {"source": "error", "rows": [], "error": f"tushare: {exc}"}
+
+
+def get_valid_tickers(*, cache_root: Path, tushare: Any) -> set[str]:
+    """Return the set of valid 6-digit ticker codes for guardrail validation.
+
+    Cached at ``data_cache/stock_basic.json`` (root level, not eval_date-keyed —
+    the listed-stock list changes rarely). Refreshed weekly.
+    """
+    from datetime import datetime
+
+    cache_path = Path(cache_root) / "stock_basic.json"
+    if not is_stale(cache_path, max_age_days=_TICKER_CACHE_MAX_AGE_DAYS):
+        cached = read_json(cache_path)
+        if cached is not None:
+            return set(cached.get("tickers", []))
+
+    df = tushare.stock_basic()
+    tickers = sorted({str(row["symbol"]) for _, row in df.iterrows()})
+    write_json_atomic(
+        cache_path,
+        {"refreshed": datetime.now().isoformat(timespec="seconds"), "tickers": tickers},
+    )
+    return set(tickers)
 
 
 def fetch_market_data(

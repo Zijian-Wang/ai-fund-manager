@@ -21,6 +21,7 @@ from src.data.market_data import (
     fetch_northbound_5d,
     fetch_sector_ranking,
     fetch_stock_5d,
+    get_valid_tickers,
 )
 
 
@@ -276,6 +277,53 @@ def test_fetch_market_data_returns_unified_dict(tmp_cache_dir):
     assert result["northbound"]["rows"][0]["north_money"] == "292500.49"
     assert result["holdings"]["300750.SZ"]["rows"][0]["close"] == 192.30
     assert result["errors"] == []
+
+
+# ---- get_valid_tickers ----
+
+def test_get_valid_tickers_fetches_and_caches_when_missing(tmp_cache_dir):
+    ts = MagicMock()
+    ts.stock_basic.return_value = pd.DataFrame(
+        {"symbol": ["000001", "300750", "600519"], "name": ["a", "b", "c"]}
+    )
+    tickers = get_valid_tickers(cache_root=tmp_cache_dir, tushare=ts)
+    assert tickers == {"000001", "300750", "600519"}
+    # Wrote cache
+    assert (tmp_cache_dir / "stock_basic.json").exists()
+
+
+def test_get_valid_tickers_uses_cache_when_fresh(tmp_cache_dir):
+    import json
+    cache_path = tmp_cache_dir / "stock_basic.json"
+    cache_path.write_text(
+        json.dumps({"refreshed": "2026-04-17", "tickers": ["000001", "300750"]}),
+        encoding="utf-8",
+    )
+    ts = MagicMock()
+    tickers = get_valid_tickers(cache_root=tmp_cache_dir, tushare=ts)
+    assert tickers == {"000001", "300750"}
+    assert not ts.stock_basic.called
+
+
+def test_get_valid_tickers_refreshes_when_stale(tmp_cache_dir):
+    import json
+    import os
+    cache_path = tmp_cache_dir / "stock_basic.json"
+    cache_path.write_text(
+        json.dumps({"refreshed": "old", "tickers": ["000001"]}),
+        encoding="utf-8",
+    )
+    # Backdate cache file 10 days
+    old_ts = cache_path.stat().st_mtime - (10 * 86400)
+    os.utime(cache_path, (old_ts, old_ts))
+
+    ts = MagicMock()
+    ts.stock_basic.return_value = pd.DataFrame(
+        {"symbol": ["000001", "300750"], "name": ["a", "b"]}
+    )
+    tickers = get_valid_tickers(cache_root=tmp_cache_dir, tushare=ts)
+    assert tickers == {"000001", "300750"}
+    ts.stock_basic.assert_called_once()
 
 
 def test_fetch_market_data_records_errors(tmp_cache_dir):
