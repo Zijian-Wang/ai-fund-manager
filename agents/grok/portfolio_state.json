@@ -1,0 +1,37 @@
+{
+  "agent": "grok",
+  "inception_date": "2026-04-17",
+  "initial_capital": 100000,
+  "current_cash": 88800.0,
+  "last_eval_date": "2026-04-17",
+  "positions": [
+    {
+      "ticker": "300450",
+      "name": "先导智能",
+      "quantity": 200,
+      "avg_cost": 56.0,
+      "bought_date": "2026-04-17"
+    }
+  ],
+  "trade_history": [
+    {
+      "eval_date": "2026-04-17",
+      "action": "BUY",
+      "ticker": "300450",
+      "name": "先导智能",
+      "quantity": 200,
+      "price": 56.0,
+      "reason_summary": "锂电设备环节龙头，技术壁垒+大客户绑定。新能源渗透率长期趋势不因短期情绪改变，先导在整个新能源制造链条里被相对低估。"
+    }
+  ],
+  "nav_history": [
+    {
+      "date": "2026-04-17",
+      "nav": 100000.0,
+      "cash_pct": 0.888,
+      "position_count": 1,
+      "benchmark_close": 4728.6716,
+      "cumulative_return_pct": 0.0
+    }
+  ]
+}

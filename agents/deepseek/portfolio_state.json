@@ -1,0 +1,53 @@
+{
+  "agent": "deepseek",
+  "inception_date": "2026-04-17",
+  "initial_capital": 100000,
+  "current_cash": 37600.0,
+  "last_eval_date": "2026-04-17",
+  "positions": [
+    {
+      "ticker": "159516",
+      "name": "半导体设备ETF国泰",
+      "quantity": 20000,
+      "avg_cost": 0.899,
+      "bought_date": "2026-04-17"
+    },
+    {
+      "ticker": "300750",
+      "name": "宁德时代",
+      "quantity": 100,
+      "avg_cost": 444.2,
+      "bought_date": "2026-04-17"
+    }
+  ],
+  "trade_history": [
+    {
+      "eval_date": "2026-04-17",
+      "action": "BUY",
+      "ticker": "159516",
+      "name": "半导体设备ETF国泰",
+      "quantity": 20000,
+      "price": 0.899,
+      "reason_summary": "半导体设备国产替代最硬逻辑，政策密集催化+全产业链涨价+全球景气上行三重驱动。4月7日产业链供应链规定强化国产替代；4月9日发改委明确2026年集成电路税收优惠。全球半导体销售2月同比+61.8%。指数跟踪中证半导体材料设备，年内涨约22%，右侧但非泡沫。"
+    },
+    {
+      "eval_date": "2026-04-17",
+      "action": "BUY",
+      "ticker": "300750",
+      "name": "宁德时代",
+      "quantity": 100,
+      "price": 444.2,
+      "reason_summary": "锂电基本面反转核心抓手，24倍PE对应2026业绩，有安全边际。2025净利润722亿同比+42%。东吴上调2026全球锂电需求至34%、储能+60%。北向上季度增持近10%。今日回调2.15%合理入场时机。"
+    }
+  ],
+  "nav_history": [
+    {
+      "date": "2026-04-17",
+      "nav": 100000.0,
+      "cash_pct": 0.376,
+      "position_count": 2,
+      "benchmark_close": 4728.6716,
+      "cumulative_return_pct": 0.0
+    }
+  ]
+}

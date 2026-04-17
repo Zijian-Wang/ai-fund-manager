@@ -1,0 +1,35 @@
+[
+  {
+    "date": "2026-04-17",
+    "benchmark": {
+      "index": "000300.SH",
+      "close": 4728.6716
+    },
+    "agents": {
+      "claude": {
+        "nav": 100000.0,
+        "cumulative_return_pct": 0.0,
+        "cash_pct": 0.62595,
+        "position_count": 2
+      },
+      "deepseek": {
+        "nav": 100000.0,
+        "cumulative_return_pct": 0.0,
+        "cash_pct": 0.376,
+        "position_count": 2
+      },
+      "gemini": {
+        "nav": 100000.0,
+        "cumulative_return_pct": 0.0,
+        "cash_pct": 0.8372,
+        "position_count": 1
+      },
+      "grok": {
+        "nav": 100000.0,
+        "cumulative_return_pct": 0.0,
+        "cash_pct": 0.888,
+        "position_count": 1
+      }
+    }
+  }
+]

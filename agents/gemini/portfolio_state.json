@@ -2,9 +2,36 @@
   "agent": "gemini",
   "inception_date": "2026-04-17",
   "initial_capital": 100000,
-  "current_cash": 100000,
-  "last_eval_date": null,
-  "positions": [],
-  "trade_history": [],
-  "nav_history": []
+  "current_cash": 83720.0,
+  "last_eval_date": "2026-04-17",
+  "positions": [
+    {
+      "ticker": "512480",
+      "name": "半导体ETF",
+      "quantity": 10000,
+      "avg_cost": 1.628,
+      "bought_date": "2026-04-17"
+    }
+  ],
+  "trade_history": [
+    {
+      "eval_date": "2026-04-17",
+      "action": "BUY",
+      "ticker": "512480",
+      "name": "半导体ETF",
+      "quantity": 10000,
+      "price": 1.628,
+      "reason_summary": "半导体材料涨幅榜首，去库存后基本面拐点+自主可控共振。ETF而非个股降低单票风险。"
+    }
+  ],
+  "nav_history": [
+    {
+      "date": "2026-04-17",
+      "nav": 100000.0,
+      "cash_pct": 0.8372,
+      "position_count": 1,
+      "benchmark_close": 4728.6716,
+      "cumulative_return_pct": 0.0
+    }
+  ]
 }

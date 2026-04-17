@@ -2,9 +2,52 @@
   "agent": "claude",
   "inception_date": "2026-04-17",
   "initial_capital": 100000,
-  "current_cash": 100000,
-  "last_eval_date": null,
-  "positions": [],
-  "trade_history": [],
-  "nav_history": []
+  "current_cash": 62595.0,
+  "last_eval_date": "2026-04-17",
+  "positions": [
+    {
+      "ticker": "510300",
+      "name": "沪深300ETF",
+      "quantity": 6200,
+      "avg_cost": 4.739,
+      "bought_date": "2026-04-17"
+    },
+    {
+      "ticker": "518880",
+      "name": "黄金ETF",
+      "quantity": 800,
+      "avg_cost": 10.029,
+      "bought_date": "2026-04-17"
+    }
+  ],
+  "trade_history": [
+    {
+      "eval_date": "2026-04-17",
+      "action": "BUY",
+      "ticker": "510300",
+      "name": "沪深300ETF",
+      "quantity": 6200,
+      "price": 4.739,
+      "reason_summary": "沪深300 PE 13.7x历史60%分位，股息率2.73%与10Y国债利差历史94%分位。基于4月16日收盘约¥4.80，6200股约¥29,760（约30% NAV），核心仓位——不押赛道，拿市场贝塔。Q1财报季验证窗口。"
+    },
+    {
+      "eval_date": "2026-04-17",
+      "action": "BUY",
+      "ticker": "518880",
+      "name": "黄金ETF",
+      "quantity": 800,
+      "price": 10.029,
+      "reason_summary": "对冲，不是追涨。金价破$4800背后是央行购金+地缘溢价+美元信用担忧。美伊停火只是暂停。基于收盘价约¥11，800股¥8,800（约8.8% NAV），反脆弱部分。"
+    }
+  ],
+  "nav_history": [
+    {
+      "date": "2026-04-17",
+      "nav": 100000.0,
+      "cash_pct": 0.62595,
+      "position_count": 2,
+      "benchmark_close": 4728.6716,
+      "cumulative_return_pct": 0.0
+    }
+  ]
 }
