@@ -144,10 +144,10 @@ def _render_index_row(code: str, rows: list[dict]) -> str:
     return f"| {name} | {latest_str} | {today_str} | {five_str} |"
 
 
-def _render_indices_section(indices: dict) -> str:
+def _render_indices_section(indices: dict, eval_date: str) -> str:
     lines = [
-        "## 大盘指数（近5个交易日）",
-        "| 指数 | 最新 | 今日涨跌 | 5日涨跌 |",
+        f"## 大盘指数（截至 {eval_date} 的 5 个交易日）",
+        f"| 指数 | 收盘 | 本期涨跌 | 5日涨跌 |",
         "|------|------|---------|---------|",
     ]
     for code in INDEX_ORDER:
@@ -156,9 +156,9 @@ def _render_indices_section(indices: dict) -> str:
     return "\n".join(lines)
 
 
-def _render_sector_section(sector_block: dict, top_n: int = 5) -> str:
+def _render_sector_section(sector_block: dict, eval_date: str, top_n: int = 5) -> str:
     lines = [
-        "## 行业板块排名（今日）",
+        f"## 行业板块排名（本期 · {eval_date} 收盘）",
         "| 排名 | 板块 | 涨跌幅 |",
         "|------|------|--------|",
     ]
@@ -177,8 +177,8 @@ def _render_sector_section(sector_block: dict, top_n: int = 5) -> str:
     return "\n".join(lines)
 
 
-def _render_northbound_section(north_block: dict) -> str:
-    lines = ["## 北向资金（近5日）"]
+def _render_northbound_section(north_block: dict, eval_date: str) -> str:
+    lines = [f"## 北向资金（截至 {eval_date} 的 5 个交易日）"]
     rows = north_block.get("rows", []) or []
     if not rows:
         lines.append("数据暂不可用")
@@ -190,7 +190,7 @@ def _render_northbound_section(north_block: dict) -> str:
             total_wan += v
     yi_value = total_wan / 10000
     direction = "净流入" if yi_value >= 0 else "净流出"
-    lines.append(f"近5日{direction}：{abs(yi_value):.2f} 亿元")
+    lines.append(f"5 日{direction}：{abs(yi_value):.2f} 亿元")
     return "\n".join(lines)
 
 
@@ -209,11 +209,11 @@ def build_shared_briefing(market_data: dict, news: list[dict]) -> str:
     sections = [
         f"# 市场简报 | {eval_date}",
         "",
-        _render_indices_section(market_data.get("indices", {})),
+        _render_indices_section(market_data.get("indices", {}), eval_date),
         "",
-        _render_sector_section(market_data.get("sector_ranking", {})),
+        _render_sector_section(market_data.get("sector_ranking", {}), eval_date),
         "",
-        _render_northbound_section(market_data.get("northbound", {})),
+        _render_northbound_section(market_data.get("northbound", {}), eval_date),
         "",
         _render_news_section(news),
     ]
