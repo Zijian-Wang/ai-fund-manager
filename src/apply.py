@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 
 from src.guardrails import ValidationError, validate_decision
-from src.portfolio.performance import append_nav_entry
+from src.portfolio.performance import append_nav_entry, compute_nav
 from src.portfolio.state import apply_buy, apply_sell
 
 
@@ -27,13 +27,6 @@ def allocation_to_shares(allocation_pct: float, nav: float, price: float) -> int
     raw_shares = target_value / price
     return int(raw_shares / 100) * 100
 
-
-def _compute_nav(state: dict, current_prices: dict[str, float]) -> float:
-    nav = float(state.get("current_cash", 0))
-    for pos in state.get("positions", []):
-        price = current_prices.get(pos["ticker"], pos["avg_cost"])
-        nav += pos["quantity"] * price
-    return nav
 
 
 def apply_agent_decision(
@@ -64,7 +57,7 @@ def apply_agent_decision(
     if errors:
         return copy.deepcopy(state), errors
 
-    nav = _compute_nav(state, current_prices)
+    nav = compute_nav(state, current_prices=current_prices)
 
     existing_qty: dict[str, int] = {
         pos["ticker"]: pos["quantity"]
