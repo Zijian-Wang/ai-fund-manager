@@ -296,3 +296,124 @@ def test_system_prompt_template_describes_decision_framework():
     assert "RISK" in SYSTEM_PROMPT_TEMPLATE
     assert "SIZING" in SYSTEM_PROMPT_TEMPLATE
     assert "INVALIDATION" in SYSTEM_PROMPT_TEMPLATE
+
+
+# ---- trading constraints block ----
+
+def test_build_agent_briefing_contains_trading_constraints():
+    """The briefing must include the trading constraints reminder."""
+    briefing = build_agent_briefing(
+        shared="## Shared",
+        agent_name="claude",
+        state={
+            "initial_capital": 100000,
+            "current_cash": 100000,
+            "positions": [],
+        },
+        prev_decision=None,
+        current_prices={},
+        benchmark_close=None,
+        inception_benchmark_close=None,
+    )
+    assert "交易约束提醒" in briefing
+    assert "allocation_pct" in briefing
+
+
+def test_trading_constraints_shows_impossible_price_threshold():
+    """NAV/100 threshold appears in the constraint block."""
+    briefing = build_agent_briefing(
+        shared="## Shared",
+        agent_name="claude",
+        state={
+            "initial_capital": 100000,
+            "current_cash": 100000,
+            "positions": [],
+        },
+        prev_decision=None,
+        current_prices={},
+        benchmark_close=None,
+        inception_benchmark_close=None,
+    )
+    # NAV=100000, threshold=1000
+    assert "¥1000" in briefing or "¥1,000" in briefing
+
+
+def test_trading_constraints_flags_expensive_holdings():
+    """Holdings requiring >= 10% allocation are flagged individually."""
+    briefing = build_agent_briefing(
+        shared="## Shared",
+        agent_name="claude",
+        state={
+            "initial_capital": 100000,
+            "current_cash": 50000,
+            "positions": [
+                {"ticker": "300750", "name": "宁德时代",
+                 "quantity": 100, "avg_cost": 185.0,
+                 "bought_date": "2026-04-10"},
+            ],
+        },
+        prev_decision=None,
+        current_prices={"300750": 500.0},  # ceil(500*100/nav*100) = ceil(50) = 50%
+        benchmark_close=None,
+        inception_benchmark_close=None,
+    )
+    assert "宁德时代" in briefing or "300750" in briefing
+    assert "50%" in briefing or "50 %" in briefing
+
+
+def test_trading_constraints_does_not_flag_cheap_holdings():
+    """Holdings requiring < 10% allocation are NOT flagged."""
+    briefing = build_agent_briefing(
+        shared="## Shared",
+        agent_name="claude",
+        state={
+            "initial_capital": 100000,
+            "current_cash": 90000,
+            "positions": [
+                {"ticker": "000001", "name": "平安银行",
+                 "quantity": 1000, "avg_cost": 10.0,
+                 "bought_date": "2026-04-10"},
+            ],
+        },
+        prev_decision=None,
+        current_prices={"000001": 10.0},  # ceil(10*100/100000*100) = ceil(1) = 1%
+        benchmark_close=None,
+        inception_benchmark_close=None,
+    )
+    # The constraint block should exist but NOT mention this cheap stock
+    # (name may still appear in holdings table — we check only the constraint block)
+    assert "交易约束提醒" in briefing
+    constraint_block = briefing.split("【交易约束提醒】", 1)[1]
+    assert "平安银行" not in constraint_block
+
+
+def test_prev_review_shows_allocation_pct():
+    """Previous decision review renders allocation_pct, not quantity."""
+    prev = {
+        "eval_date": "2026-04-10",
+        "decisions": [
+            {"action": "BUY", "ticker": "300750", "name": "宁德时代",
+             "allocation_pct": 40, "reason": {}},
+        ],
+    }
+    briefing = build_agent_briefing(
+        shared="## Shared",
+        agent_name="claude",
+        state={
+            "initial_capital": 100000,
+            "current_cash": 100000,
+            "positions": [],
+        },
+        prev_decision=prev,
+        current_prices={"300750": 200.0},
+        benchmark_close=None,
+        inception_benchmark_close=None,
+    )
+    assert "40%" in briefing
+    assert "300750" in briefing
+
+
+def test_system_prompt_template_uses_allocation_pct():
+    """The system prompt JSON example must reference allocation_pct."""
+    assert "allocation_pct" in SYSTEM_PROMPT_TEMPLATE
+    assert "quantity" not in SYSTEM_PROMPT_TEMPLATE
