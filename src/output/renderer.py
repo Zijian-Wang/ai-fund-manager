@@ -6,6 +6,8 @@ Output: a Markdown string suitable for writing to
 """
 from __future__ import annotations
 
+import math
+
 
 def _pct(value: float) -> str:
     return f"{value:+.2f}%" if value != 0 else "0.00%"
@@ -15,7 +17,13 @@ def _yuan(value: float) -> str:
     return f"¥{value:,.0f}"
 
 
-def _bullet_decisions(decisions: list[dict], *, action: str) -> str:
+def _bullet_decisions(
+    decisions: list[dict],
+    *,
+    action: str,
+    nav: float,
+    current_prices: dict[str, float],
+) -> str:
     items = [d for d in decisions if d.get("action") == action]
     if not items:
         return "无"
@@ -23,10 +31,16 @@ def _bullet_decisions(decisions: list[dict], *, action: str) -> str:
     for d in items:
         ticker = d.get("ticker", "")
         name = d.get("name", "")
-        qty = d.get("quantity")
+        pct = d.get("allocation_pct")
+        price = current_prices.get(ticker)
         header = f"- {name}" + (f" ({ticker})" if ticker else "")
-        if qty:
-            header += f" {qty}股"
+        if pct is not None:
+            header += f"  目标 {pct}%"
+            if price and price > 0 and nav > 0:
+                shares = int(nav * pct / 100 / price / 100) * 100
+                cost = shares * price
+                actual_pct = cost / nav * 100 if nav else 0
+                header += f" → {shares}股 / ¥{cost:,.0f} / 实际{actual_pct:.1f}%"
         lines.append(header)
         reason = d.get("reason") or {}
         for label, key in (
@@ -73,6 +87,7 @@ def render_agent_report(
     decision: dict,
     state: dict,
     current_prices: dict[str, float],
+    nav: float,
     benchmark_close: float | None,
     inception_benchmark_close: float | None,
 ) -> str:
@@ -82,10 +97,6 @@ def render_agent_report(
     positions = state.get("positions", [])
     cash = float(state.get("current_cash", 0))
     initial = float(state.get("initial_capital", 0))
-    nav = cash
-    for pos in positions:
-        price = current_prices.get(pos["ticker"], pos["avg_cost"])
-        nav += pos["quantity"] * price
     cum_return_pct = (nav - initial) / initial * 100 if initial else 0.0
 
     bench_return_pct = None
@@ -118,14 +129,14 @@ def render_agent_report(
         sections.append("无操作（观望）")
     else:
         sections.append(f"### 买入 ({len(buys)})")
-        sections.append(_bullet_decisions(decisions, action="BUY"))
+        sections.append(_bullet_decisions(decisions, action="BUY", nav=nav, current_prices=current_prices))
         sections.append("")
         sections.append(f"### 卖出 ({len(sells)})")
-        sections.append(_bullet_decisions(decisions, action="SELL"))
+        sections.append(_bullet_decisions(decisions, action="SELL", nav=nav, current_prices=current_prices))
         sections.append("")
         if holds:
             sections.append(f"### 持有 ({len(holds)})")
-            sections.append(_bullet_decisions(decisions, action="HOLD"))
+            sections.append(_bullet_decisions(decisions, action="HOLD", nav=nav, current_prices=current_prices))
     sections.append("")
 
     sections.append("## 当前组合")

@@ -13,7 +13,7 @@ def _decision_sample() -> dict:
                 "action": "BUY",
                 "ticker": "300750",
                 "name": "宁德时代",
-                "quantity": 100,
+                "allocation_pct": 40,
                 "reason": {
                     "thesis": "新能源长期趋势 + Q1业绩催化",
                     "catalyst": "Q1财报 + 海外订单落地",
@@ -57,6 +57,7 @@ def test_report_starts_with_agent_header():
         decision=_decision_sample(),
         state=_state_sample(),
         current_prices={"300750": 192.30},
+        nav=100000,
         benchmark_close=4728.67,
         inception_benchmark_close=4671.00,
     )
@@ -71,6 +72,7 @@ def test_report_includes_market_view():
         decision=_decision_sample(),
         state=_state_sample(),
         current_prices={"300750": 192.30},
+        nav=100000,
         benchmark_close=4728.67,
         inception_benchmark_close=4671.00,
     )
@@ -84,6 +86,7 @@ def test_report_groups_decisions_by_action():
         decision=_decision_sample(),
         state=_state_sample(),
         current_prices={"300750": 192.30},
+        nav=100000,
         benchmark_close=4728.67,
         inception_benchmark_close=4671.00,
     )
@@ -101,6 +104,7 @@ def test_report_renders_current_portfolio_table():
         decision=_decision_sample(),
         state=_state_sample(),
         current_prices={"300750": 192.30},
+        nav=100000,
         benchmark_close=4728.67,
         inception_benchmark_close=4671.00,
     )
@@ -114,6 +118,7 @@ def test_report_includes_watchlist_updates():
         decision=_decision_sample(),
         state=_state_sample(),
         current_prices={"300750": 192.30},
+        nav=100000,
         benchmark_close=4728.67,
         inception_benchmark_close=4671.00,
     )
@@ -128,6 +133,7 @@ def test_report_includes_reflection_and_audience_note():
         decision=_decision_sample(),
         state=_state_sample(),
         current_prices={"300750": 192.30},
+        nav=100000,
         benchmark_close=4728.67,
         inception_benchmark_close=4671.00,
     )
@@ -160,9 +166,39 @@ def test_report_handles_no_decisions_gracefully():
         decision=decision,
         state=state,
         current_prices={},
+        nav=100000,
         benchmark_close=None,
         inception_benchmark_close=None,
     )
     assert "Claude" in out
     assert "2026-04-17" in out
     assert "无操作" in out or "暂无" in out
+
+
+def test_report_shows_allocation_pct_and_computed_shares():
+    out = render_agent_report(
+        display_name="Claude",
+        decision=_decision_sample(),
+        state=_state_sample(),
+        current_prices={"300750": 192.30},
+        nav=100000,
+        benchmark_close=4728.67,
+        inception_benchmark_close=4700.0,
+    )
+    # allocation_pct target should appear
+    assert "40%" in out
+    # computed shares: floor(100000 * 40/100 / 192.30 / 100) * 100 = floor(2.08)*100 = 200 shares
+    assert "200股" in out or "200 股" in out
+
+
+def test_report_does_not_contain_quantity_field():
+    out = render_agent_report(
+        display_name="Claude",
+        decision=_decision_sample(),
+        state=_state_sample(),
+        current_prices={"300750": 192.30},
+        nav=100000,
+        benchmark_close=4728.67,
+        inception_benchmark_close=4700.0,
+    )
+    assert "quantity" not in out
