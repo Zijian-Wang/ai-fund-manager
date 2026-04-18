@@ -288,7 +288,7 @@ from src.data.market_data import (
 )
 from src.data.cache import read_json
 from src.portfolio.state import load_state
-from src.portfolio.performance import rebuild_track_record
+from src.portfolio.performance import rebuild_track_record, compute_nav
 from src.output.renderer import render_agent_report
 from src.output.comparison import render_comparison_report
 
@@ -322,9 +322,10 @@ for name in AGENTS:
     decision = read_json(agents_root / name / "trade_journal" / f"{eval_date}.json")
     display = DISPLAY_NAMES.get(name, name)
     if decision is not None:
+        nav = compute_nav(state, current_prices=current_prices)
         report = render_agent_report(
             display_name=display, decision=decision, state=state,
-            current_prices=current_prices, benchmark_close=benchmark_close,
+            current_prices=current_prices, nav=nav, benchmark_close=benchmark_close,
             inception_benchmark_close=(
                 state["nav_history"][0].get("benchmark_close")
                 if state["nav_history"] else None

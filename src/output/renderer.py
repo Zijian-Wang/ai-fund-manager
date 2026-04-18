@@ -6,8 +6,6 @@ Output: a Markdown string suitable for writing to
 """
 from __future__ import annotations
 
-import math
-
 
 def _pct(value: float) -> str:
     return f"{value:+.2f}%" if value != 0 else "0.00%"
