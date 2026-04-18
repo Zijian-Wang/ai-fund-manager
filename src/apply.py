@@ -1,9 +1,10 @@
 """Validate + apply a single agent's decision to its portfolio state.
 
-Composes guardrails + apply_buy/apply_sell + append_nav_entry into one
-pure function used by the orchestrator (both Claude's isolated subagent
-path and the manual webchat ingestion path). Caller is responsible for
-I/O (save_state on success, save_trade_journal always for audit).
+Agents express intent via allocation_pct (0-50 integer per position,
+sum of non-SELL decisions <= 100). This module converts percentages to
+actual share quantities via allocation_to_shares(), then delegates to
+apply_buy / apply_sell. SELLs are processed before BUYs so sell
+proceeds are available to fund purchases within the same eval.
 """
 from __future__ import annotations
 
@@ -12,6 +13,27 @@ import copy
 from src.guardrails import ValidationError, validate_decision
 from src.portfolio.performance import append_nav_entry
 from src.portfolio.state import apply_buy, apply_sell
+
+
+def allocation_to_shares(allocation_pct: float, nav: float, price: float) -> int:
+    """Convert a target allocation percentage to a round-lot share count.
+
+    Rounds DOWN to the nearest 100-share lot. Returns 0 if the position
+    is smaller than one lot at current price.
+    """
+    if price <= 0:
+        return 0
+    target_value = nav * (allocation_pct / 100)
+    raw_shares = target_value / price
+    return int(raw_shares / 100) * 100
+
+
+def _compute_nav(state: dict, current_prices: dict[str, float]) -> float:
+    nav = float(state.get("current_cash", 0))
+    for pos in state.get("positions", []):
+        price = current_prices.get(pos["ticker"], pos["avg_cost"])
+        nav += pos["quantity"] * price
+    return nav
 
 
 def apply_agent_decision(
@@ -26,12 +48,10 @@ def apply_agent_decision(
 ) -> tuple[dict, list[ValidationError]]:
     """Validate then apply ``decision`` to ``state``.
 
-    Returns ``(new_state, errors)``. If ``errors`` is non-empty the
-    original state is returned unchanged — caller should log + skip
-    applying but still save the raw decision to ``trade_journal`` for
-    the record. If ``errors`` is empty, every BUY/SELL is applied, a
-    nav_history snapshot is appended (even for HOLD-only decisions, so
-    the track record has a checkpoint), and ``last_eval_date`` is set.
+    Returns ``(new_state, errors)``. On error the original state is
+    returned unchanged. On success, all BUY/SELL decisions are applied
+    (SELLs first, then BUYs), a nav_history snapshot is appended, and
+    ``last_eval_date`` is set.
     """
     errors = validate_decision(
         decision,
@@ -44,26 +64,58 @@ def apply_agent_decision(
     if errors:
         return copy.deepcopy(state), errors
 
+    nav = _compute_nav(state, current_prices)
+
+    existing_qty: dict[str, int] = {
+        pos["ticker"]: pos["quantity"]
+        for pos in state.get("positions", [])
+    }
+
     working = state
-    for d in decision.get("decisions", []):
+    decisions = decision.get("decisions", [])
+
+    # Process SELLs first so proceeds are available for BUYs
+    for d in sorted(decisions, key=lambda x: 0 if x.get("action") == "SELL" else 1):
         action = d.get("action")
-        if action == "BUY":
-            working = apply_buy(
-                working,
-                ticker=d["ticker"], name=d["name"],
-                quantity=d["quantity"],
-                price=current_prices[d["ticker"]],
-                eval_date=eval_date,
-                reason_summary=(d.get("reason") or {}).get("thesis", ""),
-            )
-        elif action == "SELL":
-            working = apply_sell(
-                working,
-                ticker=d["ticker"], quantity=d["quantity"],
-                price=current_prices[d["ticker"]],
-                eval_date=eval_date,
-                reason_summary=(d.get("reason") or {}).get("thesis", ""),
-            )
+        ticker = d.get("ticker", "")
+        pct = d.get("allocation_pct", 0)
+        price = current_prices.get(ticker)
+
+        if action == "SELL":
+            if price is None:
+                continue
+            target_qty = allocation_to_shares(pct, nav, price)
+            current_qty = existing_qty.get(ticker, 0)
+            delta = current_qty - target_qty  # shares to sell
+            if delta > 0:
+                working = apply_sell(
+                    working,
+                    ticker=ticker,
+                    quantity=delta,
+                    price=price,
+                    eval_date=eval_date,
+                    reason_summary=(d.get("reason") or {}).get("thesis", ""),
+                )
+                existing_qty[ticker] = target_qty
+
+        elif action == "BUY":
+            if price is None:
+                continue
+            target_qty = allocation_to_shares(pct, nav, price)
+            current_qty = existing_qty.get(ticker, 0)
+            delta = target_qty - current_qty  # shares to buy
+            if delta > 0:
+                working = apply_buy(
+                    working,
+                    ticker=ticker,
+                    name=d.get("name", ticker),
+                    quantity=delta,
+                    price=price,
+                    eval_date=eval_date,
+                    reason_summary=(d.get("reason") or {}).get("thesis", ""),
+                )
+                existing_qty[ticker] = target_qty
+
         # HOLD: no state change
 
     working = append_nav_entry(
@@ -72,6 +124,5 @@ def apply_agent_decision(
         current_prices=current_prices,
         benchmark_close=benchmark_close,
     )
-    # append_nav_entry deepcopies — safe to mutate
     working["last_eval_date"] = eval_date
     return working, []
