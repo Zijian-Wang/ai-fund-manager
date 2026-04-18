@@ -193,11 +193,11 @@ Claude不在Python Agent注册表中——manual 模式下用户直接把 prompt
 
 | 规则 | 值 |
 |------|------|
-| 单只最大仓位 | 50% |
+| 单只最大配置 | allocation_pct ≤ 50 |
+| 总配置上限 | BUY decisions之和 ≤ 100% |
 | 组合回撤熔断 | -15% |
 | 单只回撤review | -20% |
 | 每日最大交易数 | 10 |
-| 最小交易单位 | 100股 |
 | T+1 | 不能卖当天买入的 |
 | 最低日成交额 | ¥500万 |
 
@@ -232,7 +232,7 @@ Claude不在Python Agent注册表中——manual 模式下用户直接把 prompt
       "action": "BUY/SELL/HOLD",
       "ticker": "300750",
       "name": "宁德时代",
-      "quantity": 100,
+      "allocation_pct": 40,
       "reason": {
         "thesis": "...",
         "catalyst": "...",
@@ -248,6 +248,20 @@ Claude不在Python Agent注册表中——manual 模式下用户直接把 prompt
   "note_to_audience": "写给观众的一段话"
 }
 ```
+
+### allocation_pct 语义
+
+- `allocation_pct` 表示该标的占**组合总NAV**的目标百分比（0-50整数）
+- BUY新标的：`allocation_pct: 40` = 把组合的40%配置到该标的
+- 加仓：现有15%仓位，`allocation_pct: 30` = 加到30%
+- 减仓：现有30%仓位，`allocation_pct: 15` = 减到15%
+- 清仓：`allocation_pct: 0`（SELL + 0）
+- 不操作：不出现在decisions里（或 `action: "HOLD"`，allocation_pct可省略）
+- 所有BUY decisions的allocation_pct之和不得超过100%
+
+apply.py 转换：`target_shares = floor(NAV × pct/100 / price / 100) × 100`
+delta = target_shares − current_shares → BUY delta if positive, SELL if negative.
+SELLs are processed before BUYs within each eval.
 
 ## 反思机制
 
