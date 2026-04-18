@@ -201,6 +201,44 @@ def test_sell_allocation_pct_excluded_from_sum():
     assert not any(e.rule == "allocation_pct" for e in errors)
 
 
+def test_hold_allocation_pct_excluded_from_sum():
+    """HOLD decisions with allocation_pct don't count toward the 100% total."""
+    decisions = [
+        {"action": "BUY", "ticker": "300750", "name": "宁德",
+         "allocation_pct": 50, "reason": {}},
+        {"action": "HOLD", "ticker": "600519", "name": "茅台",
+         "allocation_pct": 60},  # HOLD with pct > 50 must NOT trigger sum error
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=_base_state(),
+        eval_date="2026-04-17",
+        current_prices={"300750": 200.00, "600519": 1500.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "allocation_pct" for e in errors)
+
+
+def test_sell_allocation_pct_over_50_is_fine():
+    """SELL pcts > 50 are valid — SELLs reduce exposure, they don't add to it."""
+    decisions = [
+        {"action": "SELL", "ticker": "600519", "name": "茅台",
+         "allocation_pct": 80, "reason": {}},
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=_base_state(
+            positions=[{"ticker": "600519", "name": "茅台",
+                        "quantity": 10, "avg_cost": 1500.0,
+                        "bought_date": "2026-04-10"}]
+        ),
+        eval_date="2026-04-17",
+        current_prices={"600519": 1600.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "allocation_pct" for e in errors)
+
+
 def test_negative_allocation_pct_errors():
     errors = validate_decision(
         _base_decision(decisions=[{
@@ -210,6 +248,26 @@ def test_negative_allocation_pct_errors():
         state=_base_state(),
         eval_date="2026-04-17",
         current_prices={"300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert any(e.rule == "allocation_pct" for e in errors)
+
+
+def test_negative_sell_allocation_pct_errors():
+    """SELL with negative pct is always invalid."""
+    decisions = [
+        {"action": "SELL", "ticker": "600519", "name": "茅台",
+         "allocation_pct": -10, "reason": {}},
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=_base_state(
+            positions=[{"ticker": "600519", "name": "茅台",
+                        "quantity": 10, "avg_cost": 1500.0,
+                        "bought_date": "2026-04-10"}]
+        ),
+        eval_date="2026-04-17",
+        current_prices={"600519": 1600.00},
         valid_tickers=VALID_TICKERS,
     )
     assert any(e.rule == "allocation_pct" for e in errors)

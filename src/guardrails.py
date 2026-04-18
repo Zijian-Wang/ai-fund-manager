@@ -4,7 +4,7 @@ Rules implemented (per spec):
 - ``eval_date``         decision's eval_date must match current
 - ``idempotency``       agent's last_eval_date != current
 - ``ticker``            ticker exists in valid_tickers (for BUY/SELL)
-- ``allocation_pct``    each pct in 0-50; sum of non-SELL pcts <= 100
+- ``allocation_pct``    BUY pct in 0-50; SELL pct >= 0; sum of BUY pcts <= 100
 - ``t_plus_1``          cannot SELL a position bought today
 - ``max_trades``        BUY+SELL count <= 10
 - ``circuit_breaker``   portfolio cumulative_return_pct > -15%
@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-MAX_SINGLE_POSITION_PCT = 50   # allocation_pct upper bound per position
+MAX_ALLOCATION_PCT = 50   # allocation_pct upper bound for BUY decisions
 CIRCUIT_BREAKER_CUMRETURN_PCT = -0.15
 MAX_TRADES_PER_DAY = 10
 MIN_DAILY_VOLUME_YUAN = 5_000_000
@@ -90,13 +90,13 @@ def validate_decision(
             message=f"{len(trades)} trades exceeds max {MAX_TRADES_PER_DAY}",
         ))
 
-    # ---- allocation_pct sum check (non-SELL decisions only) ----
-    non_sell_pcts = [
+    # ---- allocation_pct sum check (BUY decisions only) ----
+    buy_pcts = [
         d.get("allocation_pct", 0)
         for d in decision["decisions"]
-        if isinstance(d, dict) and d.get("action") != "SELL"
+        if isinstance(d, dict) and d.get("action") == "BUY"
     ]
-    total_pct = sum(non_sell_pcts)
+    total_pct = sum(buy_pcts)
     if total_pct > 100:
         errors.append(ValidationError(
             rule="allocation_pct",
@@ -138,12 +138,26 @@ def validate_decision(
             ))
 
         # allocation_pct range
-        if pct is None or not isinstance(pct, (int, float)) or pct < 0 or pct > MAX_SINGLE_POSITION_PCT:
+        if pct is None or not isinstance(pct, (int, float)):
+            errors.append(ValidationError(
+                rule="allocation_pct",
+                message=(
+                    f"decisions[{idx}] allocation_pct={pct!r} must be a number"
+                ),
+            ))
+        elif action == "BUY" and (pct < 0 or pct > MAX_ALLOCATION_PCT):
             errors.append(ValidationError(
                 rule="allocation_pct",
                 message=(
                     f"decisions[{idx}] allocation_pct={pct!r} must be "
-                    f"a number in 0–{MAX_SINGLE_POSITION_PCT}"
+                    f"a number in 0–{MAX_ALLOCATION_PCT}"
+                ),
+            ))
+        elif action == "SELL" and pct < 0:
+            errors.append(ValidationError(
+                rule="allocation_pct",
+                message=(
+                    f"decisions[{idx}] allocation_pct={pct!r} must be >= 0 for SELL"
                 ),
             ))
 
