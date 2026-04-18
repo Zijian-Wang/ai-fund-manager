@@ -1,19 +1,12 @@
 """Shared guardrail validation.
 
-Every agent's decision (Claude's subagent output and each API agent's
-response) runs through the same ``validate_decision`` before state is
-updated. An empty error list means the decision is clean; a non-empty
-list means the orchestrator logs the errors and skips that agent's
-application for the eval.
-
 Rules implemented (per spec):
 - ``eval_date``         decision's eval_date must match current
 - ``idempotency``       agent's last_eval_date != current
 - ``ticker``            ticker exists in valid_tickers (for BUY/SELL)
-- ``lot_size``          quantity is a multiple of 100 (for BUY/SELL)
+- ``allocation_pct``    each pct in 0-50; sum of non-SELL pcts <= 100
 - ``t_plus_1``          cannot SELL a position bought today
 - ``max_trades``        BUY+SELL count <= 10
-- ``max_single_position`` post-buy position value <= 50% of NAV
 - ``circuit_breaker``   portfolio cumulative_return_pct > -15%
 - ``min_volume``        stock's daily ¥-volume >= ¥5M (when data available)
 - ``schema``            decision dict has required top-level keys
@@ -23,10 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-MAX_SINGLE_POSITION_PCT = 0.50
+MAX_SINGLE_POSITION_PCT = 50   # allocation_pct upper bound per position
 CIRCUIT_BREAKER_CUMRETURN_PCT = -0.15
 MAX_TRADES_PER_DAY = 10
-ROUND_LOT = 100
 MIN_DAILY_VOLUME_YUAN = 5_000_000
 
 
@@ -53,7 +45,7 @@ def validate_decision(
         errors.append(ValidationError(
             rule="schema", message="decision missing 'eval_date'"
         ))
-        return errors  # can't check further without basic structure
+        return errors
     if "decisions" not in decision or not isinstance(decision["decisions"], list):
         errors.append(ValidationError(
             rule="schema", message="decision missing 'decisions' list"
@@ -98,17 +90,20 @@ def validate_decision(
             message=f"{len(trades)} trades exceeds max {MAX_TRADES_PER_DAY}",
         ))
 
-    # Compute pre-trade NAV for position-size checks
-    pre_trade_nav = float(state.get("current_cash", 0))
-    for pos in state.get("positions", []):
-        price = current_prices.get(pos["ticker"], pos["avg_cost"])
-        pre_trade_nav += pos["quantity"] * price
+    # ---- allocation_pct sum check (non-SELL decisions only) ----
+    non_sell_pcts = [
+        d.get("allocation_pct", 0)
+        for d in decision["decisions"]
+        if isinstance(d, dict) and d.get("action") != "SELL"
+    ]
+    total_pct = sum(non_sell_pcts)
+    if total_pct > 100:
+        errors.append(ValidationError(
+            rule="allocation_pct",
+            message=f"total allocation_pct {total_pct}% exceeds 100%",
+        ))
 
-    # Map ticker -> existing quantity for buy accumulation
-    existing_qty: dict[str, int] = {
-        pos["ticker"]: pos["quantity"]
-        for pos in state.get("positions", [])
-    }
+    # T+1 lookup: positions bought today
     bought_dates: dict[str, str] = {
         pos["ticker"]: pos.get("bought_date", "")
         for pos in state.get("positions", [])
@@ -133,7 +128,7 @@ def validate_decision(
             continue
 
         ticker = d.get("ticker", "")
-        quantity = d.get("quantity", 0)
+        pct = d.get("allocation_pct")
 
         # ticker
         if ticker not in valid_tickers:
@@ -142,13 +137,13 @@ def validate_decision(
                 message=f"unknown ticker {ticker!r} at decisions[{idx}]",
             ))
 
-        # lot size
-        if not isinstance(quantity, int) or quantity <= 0 or quantity % ROUND_LOT != 0:
+        # allocation_pct range
+        if pct is None or not isinstance(pct, (int, float)) or pct < 0 or pct > MAX_SINGLE_POSITION_PCT:
             errors.append(ValidationError(
-                rule="lot_size",
+                rule="allocation_pct",
                 message=(
-                    f"quantity {quantity!r} at decisions[{idx}] must be a "
-                    f"positive multiple of {ROUND_LOT}"
+                    f"decisions[{idx}] allocation_pct={pct!r} must be "
+                    f"a number in 0–{MAX_SINGLE_POSITION_PCT}"
                 ),
             ))
 
@@ -160,23 +155,8 @@ def validate_decision(
                     message=f"cannot SELL {ticker} — bought today ({eval_date})",
                 ))
 
-        # max single position (check after applying all BUYs of this ticker)
+        # min volume (BUY only)
         if action == "BUY":
-            price = current_prices.get(ticker)
-            if price is not None and isinstance(quantity, int):
-                total_qty = existing_qty.get(ticker, 0) + quantity
-                post_position_value = total_qty * price
-                if post_position_value > MAX_SINGLE_POSITION_PCT * pre_trade_nav:
-                    errors.append(ValidationError(
-                        rule="max_single_position",
-                        message=(
-                            f"post-buy {ticker} position ¥{post_position_value:,.0f} "
-                            f"> {MAX_SINGLE_POSITION_PCT:.0%} of NAV ¥{pre_trade_nav:,.0f}"
-                        ),
-                    ))
-                existing_qty[ticker] = total_qty
-
-            # min volume (only when we have the data)
             vol = volumes.get(ticker)
             if vol is not None and vol < MIN_DAILY_VOLUME_YUAN:
                 errors.append(ValidationError(

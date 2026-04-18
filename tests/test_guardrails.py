@@ -53,7 +53,7 @@ def test_valid_single_buy_returns_no_errors():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "BUY", "ticker": "300750", "name": "宁德时代",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 40, "reason": {}
         }]),
         state=_base_state(),
         eval_date="2026-04-17",
@@ -99,13 +99,13 @@ def test_idempotency_rejects_reapplication():
     assert any(e.rule == "idempotency" for e in errors)
 
 
-# ---- Ticker + lot size ----
+# ---- Ticker ----
 
 def test_unknown_ticker_errors():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "BUY", "ticker": "999999", "name": "假",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 20, "reason": {}
         }]),
         state=_base_state(),
         eval_date="2026-04-17",
@@ -115,18 +115,104 @@ def test_unknown_ticker_errors():
     assert any(e.rule == "ticker" for e in errors)
 
 
-def test_quantity_not_multiple_of_100_errors():
+# ---- allocation_pct ----
+
+def test_allocation_pct_over_50_errors():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 50, "reason": {}
+            "allocation_pct": 60, "reason": {}
         }]),
         state=_base_state(),
         eval_date="2026-04-17",
         current_prices={"300750": 200.00},
         valid_tickers=VALID_TICKERS,
     )
-    assert any(e.rule == "lot_size" for e in errors)
+    assert any(e.rule == "allocation_pct" for e in errors)
+
+
+def test_allocation_pct_exactly_50_is_fine():
+    errors = validate_decision(
+        _base_decision(decisions=[{
+            "action": "BUY", "ticker": "300750", "name": "宁德",
+            "allocation_pct": 50, "reason": {}
+        }]),
+        state=_base_state(),
+        eval_date="2026-04-17",
+        current_prices={"300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "allocation_pct" for e in errors)
+
+
+def test_allocation_pct_sum_over_100_errors():
+    decisions = [
+        {"action": "BUY", "ticker": "300750", "name": "宁德",
+         "allocation_pct": 50, "reason": {}},
+        {"action": "BUY", "ticker": "600519", "name": "茅台",
+         "allocation_pct": 51, "reason": {}},
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=_base_state(),
+        eval_date="2026-04-17",
+        current_prices={"300750": 200.00, "600519": 1500.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert any(e.rule == "allocation_pct" for e in errors)
+
+
+def test_allocation_pct_sum_exactly_100_is_fine():
+    decisions = [
+        {"action": "BUY", "ticker": "300750", "name": "宁德",
+         "allocation_pct": 50, "reason": {}},
+        {"action": "BUY", "ticker": "600519", "name": "茅台",
+         "allocation_pct": 50, "reason": {}},
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=_base_state(),
+        eval_date="2026-04-17",
+        current_prices={"300750": 200.00, "600519": 1500.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "allocation_pct" for e in errors)
+
+
+def test_sell_allocation_pct_excluded_from_sum():
+    """SELL decisions don't count toward the 100% total."""
+    decisions = [
+        {"action": "SELL", "ticker": "600519", "name": "茅台",
+         "allocation_pct": 0, "reason": {}},
+        {"action": "BUY", "ticker": "300750", "name": "宁德",
+         "allocation_pct": 50, "reason": {}},
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=_base_state(
+            positions=[{"ticker": "600519", "name": "茅台",
+                        "quantity": 10, "avg_cost": 1500.0,
+                        "bought_date": "2026-04-10"}]
+        ),
+        eval_date="2026-04-17",
+        current_prices={"600519": 1600.00, "300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "allocation_pct" for e in errors)
+
+
+def test_negative_allocation_pct_errors():
+    errors = validate_decision(
+        _base_decision(decisions=[{
+            "action": "BUY", "ticker": "300750", "name": "宁德",
+            "allocation_pct": -5, "reason": {}
+        }]),
+        state=_base_state(),
+        eval_date="2026-04-17",
+        current_prices={"300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert any(e.rule == "allocation_pct" for e in errors)
 
 
 # ---- T+1 ----
@@ -141,7 +227,7 @@ def test_sell_on_same_day_as_buy_errors_t1():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "SELL", "ticker": "300750", "name": "宁德",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 0, "reason": {}
         }]),
         state=state,
         eval_date="2026-04-17",
@@ -161,7 +247,7 @@ def test_sell_next_day_is_fine():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "SELL", "ticker": "300750", "name": "宁德",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 0, "reason": {}
         }]),
         state=state,
         eval_date="2026-04-17",
@@ -176,7 +262,7 @@ def test_sell_next_day_is_fine():
 def test_more_than_10_trades_errors():
     many = [
         {"action": "BUY", "ticker": "300750", "name": "宁德",
-         "quantity": 100, "reason": {}}
+         "allocation_pct": 5, "reason": {}}
         for _ in range(11)
     ]
     errors = validate_decision(
@@ -192,7 +278,7 @@ def test_more_than_10_trades_errors():
 def test_exactly_10_trades_is_fine():
     many = [
         {"action": "BUY", "ticker": "300750", "name": "宁德",
-         "quantity": 100, "reason": {}}
+         "allocation_pct": 5, "reason": {}}
         for _ in range(10)
     ]
     errors = validate_decision(
@@ -203,62 +289,6 @@ def test_exactly_10_trades_is_fine():
         valid_tickers=VALID_TICKERS,
     )
     assert not any(e.rule == "max_trades" for e in errors)
-
-
-# ---- Max single position 50% ----
-
-def test_buy_that_pushes_position_over_50pct_errors():
-    # NAV is ~100k, buying 400 shares @ 200 = 80k (80% of portfolio)
-    errors = validate_decision(
-        _base_decision(decisions=[{
-            "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 400, "reason": {}
-        }]),
-        state=_base_state(),
-        eval_date="2026-04-17",
-        current_prices={"300750": 200.00},
-        valid_tickers=VALID_TICKERS,
-    )
-    assert any(e.rule == "max_single_position" for e in errors)
-
-
-def test_buy_that_stays_under_50pct_is_fine():
-    # NAV is ~100k, buying 200 shares @ 200 = 40k (40%)
-    errors = validate_decision(
-        _base_decision(decisions=[{
-            "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 200, "reason": {}
-        }]),
-        state=_base_state(),
-        eval_date="2026-04-17",
-        current_prices={"300750": 200.00},
-        valid_tickers=VALID_TICKERS,
-    )
-    assert not any(e.rule == "max_single_position" for e in errors)
-
-
-def test_buy_into_existing_position_counts_total():
-    """Adding to an existing position — total value must stay <= 50%."""
-    state = _base_state(
-        current_cash=60000,
-        positions=[{
-            "ticker": "300750", "name": "宁德", "quantity": 200,
-            "avg_cost": 180.00, "bought_date": "2026-04-10",
-        }],
-    )
-    # Existing 200 @ 200 = 40k, plus new 200 @ 200 = 40k, total = 80k
-    # Pre-trade NAV = 60k cash + 200*200 = 100k. Post buy position = 80k = 80%.
-    errors = validate_decision(
-        _base_decision(decisions=[{
-            "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 200, "reason": {}
-        }]),
-        state=state,
-        eval_date="2026-04-17",
-        current_prices={"300750": 200.00},
-        valid_tickers=VALID_TICKERS,
-    )
-    assert any(e.rule == "max_single_position" for e in errors)
 
 
 # ---- Circuit breaker ----
@@ -274,7 +304,7 @@ def test_circuit_breaker_triggers_at_minus_15pct():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 20, "reason": {}
         }]),
         state=state,
         eval_date="2026-04-17",
@@ -295,7 +325,7 @@ def test_circuit_breaker_does_not_trigger_at_minus_14pct():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 20, "reason": {}
         }]),
         state=state,
         eval_date="2026-04-17",
@@ -311,13 +341,13 @@ def test_low_volume_ticker_errors_when_data_available():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 20, "reason": {}
         }]),
         state=_base_state(),
         eval_date="2026-04-17",
         current_prices={"300750": 200.00},
         valid_tickers=VALID_TICKERS,
-        ticker_volumes_yuan={"300750": 3_000_000},  # ¥3M, under 5M threshold
+        ticker_volumes_yuan={"300750": 3_000_000},
     )
     assert any(e.rule == "min_volume" for e in errors)
 
@@ -327,13 +357,13 @@ def test_min_volume_skipped_when_data_missing():
     errors = validate_decision(
         _base_decision(decisions=[{
             "action": "BUY", "ticker": "300750", "name": "宁德",
-            "quantity": 100, "reason": {}
+            "allocation_pct": 20, "reason": {}
         }]),
         state=_base_state(),
         eval_date="2026-04-17",
         current_prices={"300750": 200.00},
         valid_tickers=VALID_TICKERS,
-        ticker_volumes_yuan={},  # no data
+        ticker_volumes_yuan={},
     )
     assert not any(e.rule == "min_volume" for e in errors)
 
