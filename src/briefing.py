@@ -305,6 +305,8 @@ def _render_trading_constraints(
         f"股价超过¥{max_price:.0f}的标的无法买入（任何 allocation_pct 都不够买一手）。",
         "买入100股（一手）股价为P的标的所需最小 allocation_pct = ⌈P × 100 ÷ NAV × 100⌉%。",
     ]
+    if nav <= 0:
+        return "\n".join(lines)
     expensive = []
     for pos in positions:
         price = current_prices.get(pos["ticker"])
