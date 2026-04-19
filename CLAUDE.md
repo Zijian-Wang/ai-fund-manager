@@ -6,7 +6,7 @@
 
 - **初始资金**：每个Agent ¥100,000
 - **投资范围**：A股股票、ETF（不做期货/期权）
-- **决策频率**：每日（按需触发）
+- **决策频率**：每周一次，每个 ISO 周的第一个交易日调仓
 - **执行方式**：Claude Code 为总指挥，manual-first — 用户把 briefing prompt 粘进各家 webchat（Claude/Gemini/GPT/Grok/DeepSeek/Kimi），JSON 决策贴回聊天
 - **业绩基准**：CSI 300（沪深300指数）
 
@@ -54,7 +54,7 @@ ai-fund-manager/
 │   ├── portfolio/
 │   │   ├── state.py               # 读写每个 agent 的 portfolio_state.json（原子写入）+ 记忆/日志辅助
 │   │   └── performance.py         # NAV 计算、收益率、vs CSI 300 基准
-│   ├── guardrails.py              # 共享风控验证（ticker/手数/T+1/仓位/ETF+股票 universe）
+│   ├── guardrails.py              # 共享风控验证（ticker/手数/仓位/周度节奏/现金预算）
 │   ├── briefing.py                # 组装共享简报（市场数据+新闻+持仓）
 │   ├── apply.py                   # apply_agent_decision：validate + apply + nav-append（pure）
 │   └── output/
@@ -195,11 +195,13 @@ Claude不在Python Agent注册表中——manual 模式下用户直接把 prompt
 |------|------|
 | 单只最大配置 | allocation_pct ≤ 50 |
 | 总配置上限 | BUY decisions之和 ≤ 100% |
-| 组合回撤熔断 | -15% |
-| 单只回撤review | -20% |
-| 每日最大交易数 | 10 |
-| T+1 | 不能卖当天买入的 |
+| 现金预算 | 模拟下单后现金 ≥ 0（考虑未显式决策的持仓） |
+| 每周最大交易数 | 10 |
+| 周度节奏 | 同一 ISO 周内只接受一次 eval |
 | 最低日成交额 | ¥500万 |
+
+**不再强制**：组合熔断（agent 自己通过 `invalidation` 字段管理止损）、T+1
+（周度节奏下同日买卖不可能发生）。
 
 ### 执行价格
 
@@ -266,7 +268,7 @@ SELLs are processed before BUYs within each eval.
 ## 反思机制
 
 反思嵌入在简报中，不是独立步骤：
-- 每次评估的简报包含"上期回顾"，展示上期决策的实际结果
+- 每次评估的简报包含"上周决策回顾"，展示上周决策一周后的实际结果
 - Agent在 `reflection` 字段中回顾
 - `investment_beliefs.md` 随时间积累更新
 

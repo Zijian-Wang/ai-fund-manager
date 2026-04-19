@@ -235,7 +235,7 @@ def test_build_agent_briefing_renders_prev_decision_review():
         benchmark_close=4728.67,
         inception_benchmark_close=None,
     )
-    assert "上期回顾" in out
+    assert "上周决策回顾" in out
     assert "2026-04-10" in out
     assert "宁德时代" in out
     # Outcome shown — bought at 185.50, now at 192.30
@@ -252,7 +252,7 @@ def test_build_agent_briefing_omits_prev_review_when_no_prev_decision():
         benchmark_close=4728.67,
         inception_benchmark_close=None,
     )
-    assert "上期回顾" not in out
+    assert "上周决策回顾" not in out
 
 
 def test_build_agent_briefing_with_no_positions_shows_all_cash():

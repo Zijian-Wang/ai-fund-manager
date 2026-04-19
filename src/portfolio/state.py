@@ -82,8 +82,9 @@ def apply_buy(
 ) -> dict:
     """Return a new state with the BUY applied.
 
-    If the position already exists, ``avg_cost`` is volume-weighted and
-    ``bought_date`` advances to ``eval_date`` (conservative for T+1).
+    If the position already exists, ``avg_cost`` is volume-weighted.
+    Per-buy dates aren't tracked on positions — ``trade_history`` is the
+    audit trail when you need to know when a lot was opened.
     """
     new_state = copy.deepcopy(state)
     cost = quantity * price
@@ -98,7 +99,6 @@ def apply_buy(
                 (old_qty * old_cost + quantity * price) / total_qty, 4
             )
             pos["quantity"] = total_qty
-            pos["bought_date"] = eval_date
             break
     else:
         new_state["positions"].append(
@@ -107,7 +107,6 @@ def apply_buy(
                 "name": name,
                 "quantity": quantity,
                 "avg_cost": price,
-                "bought_date": eval_date,
             }
         )
 

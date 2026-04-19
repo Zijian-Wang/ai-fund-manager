@@ -24,9 +24,9 @@ INDICES = ("000001.SH", "399001.SZ", "399006.SZ", "000300.SH")
 # stock_basic refreshes weekly — TuShare's listed-stock list changes rarely
 _TICKER_CACHE_MAX_AGE_DAYS = 7
 
-# Lookback window for "last 5 trading days" — fetch 12 calendar days to
-# cover weekends + holidays.
-_LOOKBACK_DAYS = 12
+# Lookback window for ~20 trading days — weekly cadence means agents see
+# about a month of context per eval. 30 calendar days covers holidays.
+_LOOKBACK_DAYS = 30
 
 
 def _yyyymmdd(s: str) -> str:

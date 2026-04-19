@@ -73,7 +73,7 @@ def render_comparison_report(
     sections.append(f"# AI基金经理大乱斗｜{eval_date}")
     sections.append("")
 
-    sections.append("| 选手 | 净值 | 今日收益 | 累计收益 | vs CSI300 |")
+    sections.append("| 选手 | 净值 | 本周收益 | 累计收益 | vs CSI300 |")
     sections.append("|------|------|---------|---------|-----------|")
     for name, entry in agent_entries.items():
         display = entry.get("display_name", name)

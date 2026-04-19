@@ -1,25 +1,31 @@
 """Shared guardrail validation.
 
-Rules implemented (per spec):
+Rules implemented:
 - ``eval_date``         decision's eval_date must match current
 - ``idempotency``       agent's last_eval_date != current
+- ``weekly_cadence``    last_eval_date must be in a prior ISO week (we run
+                        once per week, on the first trading day)
 - ``ticker``            ticker exists in valid_tickers (for BUY/SELL)
 - ``allocation_pct``    BUY pct in 0-50; SELL pct >= 0; sum of BUY pcts <= 100
 - ``cash_budget``       simulated post-trade cash >= 0 (accounts for held-but-
                         not-decided positions that implicitly stay on balance)
-- ``t_plus_1``          cannot SELL a position bought today
 - ``max_trades``        BUY+SELL count <= 10
-- ``circuit_breaker``   portfolio cumulative_return_pct > -15%
 - ``min_volume``        stock's daily ¥-volume >= ¥5M (when data available)
 - ``schema``            decision dict has required top-level keys
+
+Removed rules (weekly cadence makes them unnecessary):
+- ``t_plus_1``          evals are 5+ trading days apart; same-day sell is
+                        impossible by construction
+- ``circuit_breaker``   agents own their exit thesis via the ``invalidation``
+                        field — no paternalistic backstop
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 
 MAX_ALLOCATION_PCT = 50   # allocation_pct upper bound for BUY decisions
-CIRCUIT_BREAKER_CUMRETURN_PCT = -0.15
 MAX_TRADES_PER_DAY = 10
 MIN_DAILY_VOLUME_YUAN = 5_000_000
 # Penny-level slack absorbs float-rounding jitter in cash simulations.
@@ -79,18 +85,25 @@ def validate_decision(
             message=f"agent already evaluated for {eval_date}",
         ))
 
-    # ---- circuit breaker ----
-    nav_history = state.get("nav_history", [])
-    if nav_history:
-        last_return = nav_history[-1].get("cumulative_return_pct", 0.0)
-        if last_return <= CIRCUIT_BREAKER_CUMRETURN_PCT:
-            errors.append(ValidationError(
-                rule="circuit_breaker",
-                message=(
-                    f"portfolio down {last_return:.1%} — circuit breaker at "
-                    f"{CIRCUIT_BREAKER_CUMRETURN_PCT:.0%}"
-                ),
-            ))
+    # ---- weekly cadence ----
+    # We run weekly, on the first trading day of each ISO week. Reject any
+    # follow-up eval inside the same ISO week.
+    last = state.get("last_eval_date")
+    if last and last != eval_date:
+        try:
+            last_week = date.fromisoformat(last).isocalendar()
+            cur_week = date.fromisoformat(eval_date).isocalendar()
+            if (last_week.year, last_week.week) == (cur_week.year, cur_week.week):
+                errors.append(ValidationError(
+                    rule="weekly_cadence",
+                    message=(
+                        f"already evaluated this ISO week "
+                        f"({cur_week.year}-W{cur_week.week:02d}); "
+                        f"last eval was {last}"
+                    ),
+                ))
+        except ValueError:
+            pass  # malformed date; skip the check
 
     # ---- max trades ----
     trades = [
@@ -154,12 +167,6 @@ def validate_decision(
             ),
         ))
 
-    # T+1 lookup: positions bought today
-    bought_dates: dict[str, str] = {
-        pos["ticker"]: pos.get("bought_date", "")
-        for pos in state.get("positions", [])
-    }
-
     # ---- per-decision checks ----
     for idx, d in enumerate(decision["decisions"]):
         if not isinstance(d, dict):
@@ -211,14 +218,6 @@ def validate_decision(
                     f"decisions[{idx}] allocation_pct={pct!r} must be >= 0 for SELL"
                 ),
             ))
-
-        # T+1
-        if action == "SELL":
-            if bought_dates.get(ticker) == eval_date:
-                errors.append(ValidationError(
-                    rule="t_plus_1",
-                    message=f"cannot SELL {ticker} — bought today ({eval_date})",
-                ))
 
         # min volume (BUY only)
         if action == "BUY":
