@@ -5,6 +5,8 @@ Rules implemented (per spec):
 - ``idempotency``       agent's last_eval_date != current
 - ``ticker``            ticker exists in valid_tickers (for BUY/SELL)
 - ``allocation_pct``    BUY pct in 0-50; SELL pct >= 0; sum of BUY pcts <= 100
+- ``cash_budget``       simulated post-trade cash >= 0 (accounts for held-but-
+                        not-decided positions that implicitly stay on balance)
 - ``t_plus_1``          cannot SELL a position bought today
 - ``max_trades``        BUY+SELL count <= 10
 - ``circuit_breaker``   portfolio cumulative_return_pct > -15%
@@ -20,6 +22,17 @@ MAX_ALLOCATION_PCT = 50   # allocation_pct upper bound for BUY decisions
 CIRCUIT_BREAKER_CUMRETURN_PCT = -0.15
 MAX_TRADES_PER_DAY = 10
 MIN_DAILY_VOLUME_YUAN = 5_000_000
+# Penny-level slack absorbs float-rounding jitter in cash simulations.
+_CASH_EPSILON = 0.01
+
+
+def _target_shares(allocation_pct: float, nav: float, price: float) -> int:
+    """Lot-floored share target. Mirrors ``apply.allocation_to_shares``
+    but duplicated here to keep the import graph acyclic."""
+    if price is None or price <= 0:
+        return 0
+    target_value = nav * ((allocation_pct or 0) / 100)
+    return int(target_value / price / 100) * 100
 
 
 @dataclass
@@ -101,6 +114,44 @@ def validate_decision(
         errors.append(ValidationError(
             rule="allocation_pct",
             message=f"total allocation_pct {total_pct}% exceeds 100%",
+        ))
+
+    # ---- cash_budget: simulate post-trade cash ≥ 0 ----
+    # The allocation_pct sum check alone doesn't catch overdrafts: positions
+    # held-as-is (no decision mentioning them) still occupy NAV, so a BUY
+    # block that would technically fit "within 100%" can still overdraft cash.
+    positions = state.get("positions", []) or []
+    current_cash = float(state.get("current_cash", 0))
+    nav = current_cash
+    for pos in positions:
+        p = current_prices.get(pos["ticker"], pos.get("avg_cost", 0))
+        nav += pos["quantity"] * p
+    existing_qty: dict[str, int] = {p["ticker"]: p["quantity"] for p in positions}
+    cash_delta = 0.0
+    for d in decision["decisions"]:
+        if not isinstance(d, dict):
+            continue
+        action = d.get("action")
+        if action not in {"BUY", "SELL"}:
+            continue
+        ticker = d.get("ticker", "")
+        price = current_prices.get(ticker)
+        if price is None or price <= 0:
+            continue
+        target = _target_shares(d.get("allocation_pct", 0), nav, price)
+        current = existing_qty.get(ticker, 0)
+        if action == "BUY" and target > current:
+            cash_delta -= (target - current) * price
+        elif action == "SELL" and current > target:
+            cash_delta += (current - target) * price
+    projected_cash = current_cash + cash_delta
+    if projected_cash < -_CASH_EPSILON:
+        errors.append(ValidationError(
+            rule="cash_budget",
+            message=(
+                f"BUYs would overdraft cash to ¥{projected_cash:,.0f} "
+                "— sell existing positions or reduce allocation_pct"
+            ),
         ))
 
     # T+1 lookup: positions bought today

@@ -74,15 +74,16 @@ def test_index_daily_iterates_correctly(mock_bs):
     assert call_args.kwargs["end_date"] == "2026-04-17"
 
     assert len(rows) == 2
+    # Normalized to descending (latest-first) to match TuShare's convention.
     assert rows[0] == {
-        "date": "2026-04-16",
+        "date": "2026-04-17",
         "code": "sh.000300",
-        "open": 4694.43,
-        "high": 4739.22,
-        "low": 4689.41,
-        "close": 4736.60,
+        "open": 4728.99,
+        "high": 4738.32,
+        "low": 4714.46,
+        "close": 4728.67,
     }
-    assert rows[1]["close"] == 4728.67
+    assert rows[1]["close"] == 4736.60
 
 
 def test_stock_daily_parses_volume_and_amount(mock_bs):
@@ -113,6 +114,27 @@ def test_empty_value_becomes_none(mock_bs):
     )
     assert rows[0]["open"] is None
     assert rows[0]["close"] == 4728.67
+
+
+def test_rows_are_latest_first(mock_bs):
+    """Contract: rows[0] must be the latest date (matches TuShare)."""
+    mock_bs.query_history_k_data_plus.return_value = FakeResultSet(
+        rows=[
+            # BaoStock yields ascending — we should flip.
+            ["2026-04-13", "sh.000300", "4600", "4610", "4590", "4605"],
+            ["2026-04-14", "sh.000300", "4605", "4620", "4600", "4615"],
+            ["2026-04-15", "sh.000300", "4615", "4630", "4610", "4625"],
+            ["2026-04-16", "sh.000300", "4625", "4640", "4620", "4635"],
+            ["2026-04-17", "sh.000300", "4635", "4650", "4630", "4645"],
+        ],
+        fields=["date", "code", "open", "high", "low", "close"],
+    )
+    client = BaoStockClient(_bs=mock_bs)
+    rows = client.index_daily(
+        code="sh.000300", start_date="2026-04-13", end_date="2026-04-17"
+    )
+    assert rows[0]["date"] == "2026-04-17"
+    assert rows[-1]["date"] == "2026-04-13"
 
 
 def test_returns_empty_when_query_errored(mock_bs):

@@ -443,3 +443,74 @@ def test_validation_error_has_rule_and_message():
     err = ValidationError(rule="test", message="something happened")
     assert err.rule == "test"
     assert err.message == "something happened"
+
+
+# ---- cash_budget ----
+
+def test_cash_budget_rejects_buy_when_cash_insufficient_because_of_held_position():
+    """Held-but-not-decided positions still occupy NAV, so BUYs that would fit
+    within 100% of NAV can still overdraft. Regression for a real bug."""
+    # Holding 600519 worth ¥80,000 (80% of NAV). Cash = ¥20,000. NAV = ¥100,000.
+    # Agent says BUY 300750 at 30% of NAV (target ≈ ¥30,000 at ¥100/share →
+    # 300 shares × ¥100 = ¥30,000). Only ¥20,000 cash available → overdraft.
+    state = _base_state(
+        current_cash=20_000,
+        positions=[{
+            "ticker": "600519", "name": "茅台",
+            "quantity": 100, "avg_cost": 800.0,
+        }],
+    )
+    decisions = [{
+        "action": "BUY", "ticker": "300750", "name": "宁德",
+        "allocation_pct": 30, "reason": {},
+    }]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=state,
+        eval_date="2026-04-17",
+        current_prices={"600519": 800.00, "300750": 100.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert any(e.rule == "cash_budget" for e in errors), errors
+
+
+def test_cash_budget_passes_when_sell_frees_cash_for_buy():
+    """SELL proceeds count toward the budget, so pair trades are fine."""
+    state = _base_state(
+        current_cash=20_000,
+        positions=[{
+            "ticker": "600519", "name": "茅台",
+            "quantity": 100, "avg_cost": 800.0,
+        }],
+    )
+    decisions = [
+        {"action": "SELL", "ticker": "600519", "name": "茅台",
+         "allocation_pct": 0, "reason": {}},
+        {"action": "BUY", "ticker": "300750", "name": "宁德",
+         "allocation_pct": 40, "reason": {}},
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=state,
+        eval_date="2026-04-17",
+        current_prices={"600519": 800.00, "300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "cash_budget" for e in errors), errors
+
+
+def test_cash_budget_passes_when_cash_is_available():
+    """Happy path: enough cash on hand."""
+    state = _base_state(current_cash=100_000)
+    decisions = [{
+        "action": "BUY", "ticker": "300750", "name": "宁德",
+        "allocation_pct": 40, "reason": {},
+    }]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=state,
+        eval_date="2026-04-17",
+        current_prices={"300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "cash_budget" for e in errors), errors
