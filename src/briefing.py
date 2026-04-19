@@ -325,6 +325,8 @@ def _render_prev_review(
 def _render_trading_constraints(
     nav: float, positions: list[dict], current_prices: dict[str, float]
 ) -> str:
+    if nav <= 0:
+        return "【交易约束提醒】\n组合净值 ≤ 0，无法下单。"
     max_price = nav / 100
     lines = [
         "【交易约束提醒】",
@@ -332,8 +334,6 @@ def _render_trading_constraints(
         f"股价超过¥{max_price:.0f}的标的无法买入（任何 allocation_pct 都不够买一手）。",
         "买入100股（一手）股价为P的标的所需最小 allocation_pct = ⌈P × 100 ÷ NAV × 100⌉%。",
     ]
-    if nav <= 0:
-        return "\n".join(lines)
     expensive = []
     for pos in positions:
         price = current_prices.get(pos["ticker"])

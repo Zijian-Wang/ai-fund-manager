@@ -32,8 +32,9 @@ def _summarize_decisions(decision: dict) -> str:
         if action == "HOLD":
             chunks.append(f"HOLD {name}({ticker})")
             continue
-        qty = d.get("quantity", "?")
-        chunks.append(f"{action} {name}({ticker}) {qty}股")
+        pct = d.get("allocation_pct")
+        pct_str = f" → {pct}%" if pct is not None else ""
+        chunks.append(f"{action} {name}({ticker}){pct_str}")
     return "；".join(chunks)
 
 

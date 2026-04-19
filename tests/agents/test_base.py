@@ -100,3 +100,16 @@ def test_extract_json_module_function_handles_markdown_fence():
 def test_extract_json_module_function_raises_on_no_json():
     with pytest.raises(ValueError):
         extract_json("plain text")
+
+
+def test_extract_json_skips_unparseable_brace_block_before_real_json():
+    """Leading prose with an example like `{foo}` shouldn't abort parsing."""
+    raw = (
+        "First let me think: maybe {alpha: beta} or similar.\n"
+        "Actually the answer is:\n"
+        '{"eval_date": "2026-04-17", "decisions": []}'
+    )
+    assert extract_json(raw) == {
+        "eval_date": "2026-04-17",
+        "decisions": [],
+    }

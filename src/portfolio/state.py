@@ -210,7 +210,10 @@ def load_prev_decision(
     return read_json(_trade_journal_path(agent_name, last, agents_root))
 
 
-_MEMORY_EXCLUDE_NAMES = {"portfolio_state", "portfolio_state.json"}
+_MEMORY_EXCLUDE_NAMES = {
+    "portfolio_state", "portfolio_state.json",
+    "nav_history", "nav_history.json",
+}
 _MEMORY_INCLUDE_SUFFIXES = {".md", ".json", ".txt"}
 
 

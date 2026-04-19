@@ -12,7 +12,7 @@ def _agent_entry(display_name: str, market_view: str) -> dict:
             "market_view": market_view,
             "decisions": [
                 {"action": "BUY", "ticker": "300750", "name": "宁德时代",
-                 "quantity": 100, "reason": {
+                 "allocation_pct": 20, "reason": {
                      "thesis": "好", "catalyst": "近", "risk": "低",
                      "invalidation": "业绩差"}},
             ],
