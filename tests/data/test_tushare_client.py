@@ -5,13 +5,14 @@ We inject a mock ``pro`` object so tests don't hit the network.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
-from src.data.tushare_client import TuShareClient
+from src.data.tushare_client import _RATE_LIMIT_WINDOW_SEC, TuShareClient
 
 
 @pytest.fixture
@@ -46,9 +47,14 @@ def test_throttle_records_calls(client: TuShareClient) -> None:
 
 
 def test_throttle_drops_calls_outside_window(client: TuShareClient) -> None:
-    client._call_log.append(0.0)  # ancient
+    # time.monotonic() has an implementation-defined reference; a literal
+    # 0.0 isn't guaranteed to be outside the window on a freshly-started
+    # process (e.g. CI runners where the monotonic clock is still small).
+    # Anchor the "ancient" timestamp relative to the current clock.
+    ancient = time.monotonic() - _RATE_LIMIT_WINDOW_SEC - 1.0
+    client._call_log.append(ancient)
     client._throttle()
-    assert all(t > 1.0 for t in client._call_log)
+    assert ancient not in client._call_log
 
 
 # ---- trade_cal ----

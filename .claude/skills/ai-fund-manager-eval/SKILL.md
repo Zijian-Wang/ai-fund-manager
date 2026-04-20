@@ -1,9 +1,13 @@
 ---
 name: ai-fund-manager-eval
-description: Use when the user says "start today's eval", "run eval", "do today's fund manager check", or anything indicating the daily ai-fund-manager evaluation. Drives the full eval end-to-end — fetch market data, freeze briefing, print the webchat prompt for manual agents (Claude/Gemini/GPT/Grok/DeepSeek/Kimi), ingest pasted JSON decisions, render reports.
+description: Use when the user says "start this week's eval", "run eval", "do the fund manager check", or anything indicating the weekly ai-fund-manager evaluation. Drives the full eval end-to-end — fetch market data, freeze briefing, print the webchat prompt for manual agents (Claude/Gemini/GPT/Grok/DeepSeek/Kimi), ingest pasted JSON decisions, render reports.
 ---
 
-# AI Fund Manager — Daily Eval
+# AI Fund Manager — Weekly Eval
+
+Weekly rebalancing: run this on the first trading day of each ISO week.
+The `weekly_cadence` guardrail rejects a second ingestion inside the
+same week, so it's safe to trigger early or late in the day.
 
 This skill runs one eval cycle. Most correctness-sensitive logic lives
 in Python (`src/*`); this skill is the narrative layer.
@@ -26,6 +30,18 @@ Default agents to prompt the user to evaluate via webchat:
 - **kimi** (kimi.com)
 
 The user can skip any of these per run.
+
+## Reset utility (before a fresh start)
+
+If the user wants to wipe prior records and start over:
+
+```bash
+python scripts/reset_agents.py            # dry-run, lists what would go
+python scripts/reset_agents.py --confirm  # actually delete
+```
+
+This keeps memory files and the market-data cache by default. Add
+`--also-memory` or `--also-cache` for a deeper wipe.
 
 ## Step 1 — Ask which agents to include
 
@@ -71,7 +87,8 @@ tushare.trade_cal_refresh(
 )
 
 eval_date = resolve_eval_date(cache_root=cache_root)
-print(f"eval_date = {eval_date}")
+iso = date.fromisoformat(eval_date).isocalendar()
+print(f"eval_date = {eval_date}  (ISO week {iso.year}-W{iso.week:02d})")
 
 # Init state for every chosen agent, collect holdings
 AGENTS = ["claude", "gemini", "gpt", "grok", "deepseek", "kimi"]  # TODO: replace per user choice
@@ -102,8 +119,10 @@ PY
 ```
 
 **On re-run (idempotency):** if ALL chosen agents have
-`last_eval_date == eval_date`, stop with "今日评估已完成". If only
-some are done, continue with the missing ones.
+`last_eval_date` inside the same ISO week as `eval_date`, stop with
+"本周评估已完成". The `weekly_cadence` guardrail will also reject any
+late arrival. If only some agents are done, continue with the missing
+ones.
 
 ## Step 3 — Print the paste-me-into-webchat prompt
 

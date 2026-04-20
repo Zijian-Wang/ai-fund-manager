@@ -52,38 +52,52 @@ def extract_json(raw: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    start = raw.find("{")
-    if start == -1:
-        raise ValueError("no JSON object found in response")
-    depth = 0
-    in_string = False
-    escaped = False
-    for i in range(start, len(raw)):
-        c = raw[i]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif c == "\\":
-                escaped = True
-            elif c == '"':
-                in_string = False
-            continue
-        if c == '"':
-            in_string = True
-            continue
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                candidate = raw[start : i + 1]
-                try:
-                    return json.loads(candidate)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(
-                        f"JSON parse failed: {exc.msg} in {candidate[:80]!r}"
-                    ) from exc
-    raise ValueError("unbalanced braces in response")
+    # Walk every balanced {...} block in the raw text and return the first
+    # that parses as JSON. This tolerates leading prose that happens to
+    # contain braces (e.g. "I think {x: 1} is an example... {real: json}").
+    last_parse_error: json.JSONDecodeError | None = None
+    cursor = 0
+    while True:
+        start = raw.find("{", cursor)
+        if start == -1:
+            break
+        depth = 0
+        in_string = False
+        escaped = False
+        end = -1
+        for i in range(start, len(raw)):
+            c = raw[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif c == "\\":
+                    escaped = True
+                elif c == '"':
+                    in_string = False
+                continue
+            if c == '"':
+                in_string = True
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end == -1:
+            break  # unbalanced; nothing more to try
+        candidate = raw[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_parse_error = exc
+            cursor = start + 1  # try the next `{`
+    if last_parse_error is not None:
+        raise ValueError(
+            f"JSON parse failed: {last_parse_error.msg}"
+        ) from last_parse_error
+    raise ValueError("no JSON object found in response")
 
 
 class BaseAgent(ABC):

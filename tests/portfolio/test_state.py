@@ -165,7 +165,6 @@ def test_apply_buy_deducts_cash_and_adds_position():
         "name": "宁德时代",
         "quantity": 100,
         "avg_cost": 185.50,
-        "bought_date": "2026-04-17",
     }
     assert len(new_state["trade_history"]) == 1
     t = new_state["trade_history"][0]
@@ -183,7 +182,6 @@ def test_apply_buy_averages_cost_when_adding_to_existing_position():
                 "name": "宁德时代",
                 "quantity": 100,
                 "avg_cost": 180.00,
-                "bought_date": "2026-04-10",
             }
         ],
         "trade_history": [],
@@ -200,8 +198,6 @@ def test_apply_buy_averages_cost_when_adding_to_existing_position():
     pos = new_state["positions"][0]
     assert pos["quantity"] == 200
     assert pos["avg_cost"] == 190.00  # (100*180 + 100*200) / 200
-    # bought_date moved to most recent for conservative T+1
-    assert pos["bought_date"] == "2026-04-17"
     assert new_state["current_cash"] == 50000 - 100 * 200
 
 

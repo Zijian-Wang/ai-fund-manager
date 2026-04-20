@@ -58,6 +58,9 @@ class BaoStockClient:
                         float(value) if value not in ("", None) else None
                     )
             rows.append(parsed)
+        # BaoStock emits ascending date order; TuShare emits descending.
+        # Normalize to TuShare's convention so rows[0] is always latest.
+        rows.reverse()
         return rows
 
     def index_daily(

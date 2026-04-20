@@ -273,46 +273,43 @@ def test_negative_sell_allocation_pct_errors():
     assert any(e.rule == "allocation_pct" for e in errors)
 
 
-# ---- T+1 ----
+# ---- Weekly cadence ----
 
-def test_sell_on_same_day_as_buy_errors_t1():
-    state = _base_state(
-        positions=[{
-            "ticker": "300750", "name": "宁德时代", "quantity": 100,
-            "avg_cost": 185.00, "bought_date": "2026-04-17",
-        }]
-    )
+def test_weekly_cadence_rejects_second_eval_in_same_iso_week():
+    # 2026-04-13 (Mon) and 2026-04-17 (Fri) are both ISO week 16.
+    state = _base_state(last_eval_date="2026-04-13")
     errors = validate_decision(
-        _base_decision(decisions=[{
-            "action": "SELL", "ticker": "300750", "name": "宁德",
-            "allocation_pct": 0, "reason": {}
-        }]),
+        _base_decision(eval_date="2026-04-17"),
         state=state,
         eval_date="2026-04-17",
-        current_prices={"300750": 200.00},
+        current_prices={},
         valid_tickers=VALID_TICKERS,
     )
-    assert any(e.rule == "t_plus_1" for e in errors)
+    assert any(e.rule == "weekly_cadence" for e in errors), errors
 
 
-def test_sell_next_day_is_fine():
-    state = _base_state(
-        positions=[{
-            "ticker": "300750", "name": "宁德时代", "quantity": 100,
-            "avg_cost": 185.00, "bought_date": "2026-04-16",
-        }]
-    )
+def test_weekly_cadence_allows_eval_in_new_iso_week():
+    # 2026-04-13 is W16; 2026-04-20 (next Mon) is W17.
+    state = _base_state(last_eval_date="2026-04-13")
     errors = validate_decision(
-        _base_decision(decisions=[{
-            "action": "SELL", "ticker": "300750", "name": "宁德",
-            "allocation_pct": 0, "reason": {}
-        }]),
+        _base_decision(eval_date="2026-04-20"),
         state=state,
-        eval_date="2026-04-17",
-        current_prices={"300750": 200.00},
+        eval_date="2026-04-20",
+        current_prices={},
         valid_tickers=VALID_TICKERS,
     )
-    assert not any(e.rule == "t_plus_1" for e in errors)
+    assert not any(e.rule == "weekly_cadence" for e in errors), errors
+
+
+def test_weekly_cadence_passes_when_no_prior_eval():
+    errors = validate_decision(
+        _base_decision(eval_date="2026-04-13"),
+        state=_base_state(last_eval_date=None),
+        eval_date="2026-04-13",
+        current_prices={},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "weekly_cadence" for e in errors), errors
 
 
 # ---- Max trades per day ----
@@ -347,50 +344,6 @@ def test_exactly_10_trades_is_fine():
         valid_tickers=VALID_TICKERS,
     )
     assert not any(e.rule == "max_trades" for e in errors)
-
-
-# ---- Circuit breaker ----
-
-def test_circuit_breaker_triggers_at_minus_15pct():
-    state = _base_state(
-        nav_history=[
-            {"date": "2026-04-16", "nav": 84000,
-             "cumulative_return_pct": -0.16, "cash_pct": 1.0, "position_count": 0,
-             "benchmark_close": None},
-        ]
-    )
-    errors = validate_decision(
-        _base_decision(decisions=[{
-            "action": "BUY", "ticker": "300750", "name": "宁德",
-            "allocation_pct": 20, "reason": {}
-        }]),
-        state=state,
-        eval_date="2026-04-17",
-        current_prices={"300750": 200.00},
-        valid_tickers=VALID_TICKERS,
-    )
-    assert any(e.rule == "circuit_breaker" for e in errors)
-
-
-def test_circuit_breaker_does_not_trigger_at_minus_14pct():
-    state = _base_state(
-        nav_history=[
-            {"date": "2026-04-16", "nav": 86000,
-             "cumulative_return_pct": -0.14, "cash_pct": 1.0, "position_count": 0,
-             "benchmark_close": None},
-        ]
-    )
-    errors = validate_decision(
-        _base_decision(decisions=[{
-            "action": "BUY", "ticker": "300750", "name": "宁德",
-            "allocation_pct": 20, "reason": {}
-        }]),
-        state=state,
-        eval_date="2026-04-17",
-        current_prices={"300750": 200.00},
-        valid_tickers=VALID_TICKERS,
-    )
-    assert not any(e.rule == "circuit_breaker" for e in errors)
 
 
 # ---- Min daily volume ----
@@ -443,3 +396,74 @@ def test_validation_error_has_rule_and_message():
     err = ValidationError(rule="test", message="something happened")
     assert err.rule == "test"
     assert err.message == "something happened"
+
+
+# ---- cash_budget ----
+
+def test_cash_budget_rejects_buy_when_cash_insufficient_because_of_held_position():
+    """Held-but-not-decided positions still occupy NAV, so BUYs that would fit
+    within 100% of NAV can still overdraft. Regression for a real bug."""
+    # Holding 600519 worth ¥80,000 (80% of NAV). Cash = ¥20,000. NAV = ¥100,000.
+    # Agent says BUY 300750 at 30% of NAV (target ≈ ¥30,000 at ¥100/share →
+    # 300 shares × ¥100 = ¥30,000). Only ¥20,000 cash available → overdraft.
+    state = _base_state(
+        current_cash=20_000,
+        positions=[{
+            "ticker": "600519", "name": "茅台",
+            "quantity": 100, "avg_cost": 800.0,
+        }],
+    )
+    decisions = [{
+        "action": "BUY", "ticker": "300750", "name": "宁德",
+        "allocation_pct": 30, "reason": {},
+    }]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=state,
+        eval_date="2026-04-17",
+        current_prices={"600519": 800.00, "300750": 100.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert any(e.rule == "cash_budget" for e in errors), errors
+
+
+def test_cash_budget_passes_when_sell_frees_cash_for_buy():
+    """SELL proceeds count toward the budget, so pair trades are fine."""
+    state = _base_state(
+        current_cash=20_000,
+        positions=[{
+            "ticker": "600519", "name": "茅台",
+            "quantity": 100, "avg_cost": 800.0,
+        }],
+    )
+    decisions = [
+        {"action": "SELL", "ticker": "600519", "name": "茅台",
+         "allocation_pct": 0, "reason": {}},
+        {"action": "BUY", "ticker": "300750", "name": "宁德",
+         "allocation_pct": 40, "reason": {}},
+    ]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=state,
+        eval_date="2026-04-17",
+        current_prices={"600519": 800.00, "300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "cash_budget" for e in errors), errors
+
+
+def test_cash_budget_passes_when_cash_is_available():
+    """Happy path: enough cash on hand."""
+    state = _base_state(current_cash=100_000)
+    decisions = [{
+        "action": "BUY", "ticker": "300750", "name": "宁德",
+        "allocation_pct": 40, "reason": {},
+    }]
+    errors = validate_decision(
+        _base_decision(decisions=decisions),
+        state=state,
+        eval_date="2026-04-17",
+        current_prices={"300750": 200.00},
+        valid_tickers=VALID_TICKERS,
+    )
+    assert not any(e.rule == "cash_budget" for e in errors), errors

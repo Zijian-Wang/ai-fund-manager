@@ -111,6 +111,18 @@ def apply_agent_decision(
 
         # HOLD: no state change
 
+    # Defense-in-depth: the cash_budget guardrail should have caught this,
+    # but if rounding or a missing price slipped a BUY past validation, bail
+    # out before persisting a negative balance.
+    if working.get("current_cash", 0) < -0.01:
+        return copy.deepcopy(state), [ValidationError(
+            rule="cash_budget",
+            message=(
+                f"cash went negative to ¥{working['current_cash']:,.0f} after "
+                "applying trades — decision rejected"
+            ),
+        )]
+
     working = append_nav_entry(
         working,
         eval_date=eval_date,
