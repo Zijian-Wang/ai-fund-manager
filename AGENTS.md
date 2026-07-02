@@ -7,14 +7,14 @@
 - **初始资金**：每个Agent ¥600,000
 - **投资范围**：A股股票、ETF（不做期货/期权）
 - **决策频率**：每周一次，每个 ISO 周的第一个交易日调仓
-- **执行方式**：Claude Code 为总指挥，manual-first — 用户把 briefing prompt 粘进各家 webchat（Claude/Gemini/GPT/Grok/DeepSeek/Kimi），JSON 决策贴回聊天
+- **执行方式**：Codex 为总指挥，manual-first — 用户把 briefing prompt 粘进各家 webchat（Codex/Gemini/GPT/Grok/DeepSeek/Kimi），JSON 决策贴回聊天
 - **业绩基准**：CSI 300（沪深300指数）
 
 ## 技术架构
 
-**Claude Code 是 orchestrator**。用户说"开始今天的评估"（或任何触发该意图的话），Claude Code 激活 `ai-fund-manager-eval` skill 并按 skill 的 step-by-step runbook 执行。skill 是叙事层；Python 在 `src/` 下承担正确性敏感的计算。
+**Codex 是 orchestrator**。用户说"开始今天的评估"（或任何触发该意图的话），Codex 激活 `ai-fund-manager-eval` skill 并按 skill 的 step-by-step runbook 执行。skill 是叙事层；Python 在 `src/` 下承担正确性敏感的计算。
 
-**评估模式：manual-first**。用户手动把简报 prompt 粘进 Claude.ai / Gemini / GPT / Grok / DeepSeek / Kimi 的 webchat，拿到 JSON 决策，贴回聊天；Claude Code 用 `apply_agent_decision` 做校验+入账+日志。
+**评估模式：manual-first**。用户手动把简报 prompt 粘进 Codex.ai / Gemini / GPT / Grok / DeepSeek / Kimi 的 webchat，拿到 JSON 决策，贴回聊天；Codex 用 `apply_agent_decision` 做校验+入账+日志。
 
 **Web 搜索是特性，不是漏洞**：webchat agent 各有自己的 web 工具、system prompt、记忆——news-gathering 能力本身就是被比较的维度之一。公平性通过"同一段冻结 briefing 文本"保证；模型差异、工具差异是产品特色。
 
@@ -24,19 +24,19 @@
 
 - Python 3.11+
 - 数据源：TuShare Pro（主力）、AKShare（备用，版本锁定）、BaoStock（零配置兜底）
-- 新闻：Eastmoney JSON API + 财联社 + Claude Code WebSearch
-- AI Agent：manual webchat（Claude.ai / Gemini / GPT / Grok / DeepSeek / Kimi）为主；Python API agent 代码保留为 dormant，填 env key 即可启用
+- 新闻：Eastmoney JSON API + 财联社 + Codex WebSearch
+- AI Agent：manual webchat（Codex.ai / Gemini / GPT / Grok / DeepSeek / Kimi）为主；Python API agent 代码保留为 dormant，填 env key 即可启用
 - 存储：本地 JSON/Markdown 文件
 
 ## 项目结构
 
 ```
 ai-fund-manager/
-├── CLAUDE.md                      # 本文件
+├── AGENTS.md                      # 本文件
 ├── README.md                      # 用户操作指南
 ├── .env                           # TUSHARE_TOKEN, GEMINI_API_KEY, OLLAMA_CLOUD_API_KEY
 ├── requirements.txt
-├── .claude/
+├── .Codex/
 │   └── skills/
 │       └── ai-fund-manager-eval/
 │           └── SKILL.md           # 日评估的完整 runbook（叙事层）
@@ -68,7 +68,7 @@ ai-fund-manager/
 │   ├── trade_journal/
 │   └── lessons/
 ├── agents/                        # 每个Agent的持久化状态（运行时创建）
-│   ├── claude/
+│   ├── Codex/
 │   │   ├── portfolio_state.json
 │   │   ├── memory/
 │   │   ├── trade_journal/
@@ -114,13 +114,13 @@ ai-fund-manager/
 
 ## Orchestration 流程
 
-用户说 "开始今天的评估" 时，Claude Code 激活 **`ai-fund-manager-eval` skill**（在 `.claude/skills/ai-fund-manager-eval/SKILL.md`），skill 是完整 runbook。高层概要：
+用户说 "开始今天的评估" 时，Codex 激活 **`ai-fund-manager-eval` skill**（在 `.Codex/skills/ai-fund-manager-eval/SKILL.md`），skill 是完整 runbook。高层概要：
 
 ```
 1. 问用户：本期评估哪些 agent？
 2. 解析 eval_date、拉取市场数据、构建并冻结共享简报
 3. 为每个 webchat agent 生成 prompt 文件，让用户粘进各家 webchat
-4. 用户把 AI 返回的 JSON 决策贴回聊天，Claude Code 用 apply_agent_decision 逐个 ingest
+4. 用户把 AI 返回的 JSON 决策贴回聊天，Codex 用 apply_agent_decision 逐个 ingest
 5. 重建 track_record，渲染单 agent 报告 + 对比报告
 ```
 
@@ -154,7 +154,7 @@ class BaseAgent(ABC):
         ...
 ```
 
-Claude不在Python Agent注册表中——manual 模式下用户直接把 prompt 粘进 claude.ai webchat，拿到 JSON 贴回。状态在 `agents/claude/`。
+Codex不在Python Agent注册表中——manual 模式下用户直接把 prompt 粘进 Codex.ai webchat，拿到 JSON 贴回。状态在 `agents/Codex/`。
 
 ### 添加新Agent
 
@@ -175,7 +175,7 @@ Claude不在Python Agent注册表中——manual 模式下用户直接把 prompt
 | 板块排名 | AKShare `stock_board_industry_name_em`（含retry/backoff） | 缓存 | — |
 | 北向资金 | TuShare `moneyflow_hsgt` | 缓存 | — |
 | 有效ticker | TuShare `stock_basic` | 缓存（周度刷新） | — |
-| 新闻 | `news_fetcher.py`（Eastmoney+财联社） | Claude WebSearch | "新闻暂不可用" |
+| 新闻 | `news_fetcher.py`（Eastmoney+财联社） | Codex WebSearch | "新闻暂不可用" |
 
 **注**：AKShare 的 northbound 和 fina_indicator 端点（`datacenter-web.eastmoney.com`）在我们的环境中不可达——已从级联中删除。`fina_indicator` 推迟到由 guardrails 实际消费时再加。
 

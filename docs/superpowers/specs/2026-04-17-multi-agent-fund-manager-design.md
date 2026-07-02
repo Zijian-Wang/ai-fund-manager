@@ -2,7 +2,7 @@
 
 ## Overview
 
-A multi-agent A-share simulated fund manager where multiple AI providers independently manage separate ¥100,000 portfolios. Each agent receives identical market data and makes independent investment decisions. The comparison of their strategies and performance creates compelling content for social media (小红书).
+A multi-agent A-share simulated fund manager where multiple AI providers independently manage separate ¥600,000 portfolios. Each agent receives identical market data and makes independent investment decisions. The comparison of their strategies and performance creates compelling content for social media (小红书).
 
 **Orchestrator**: Claude Code session. The user triggers a daily evaluation by asking Claude Code to run it. Claude Code fetches data, calls API agents, makes its own decision, and produces all reports. No standalone `run_weekly.py` pipeline — Claude Code *is* the pipeline.
 
@@ -102,7 +102,7 @@ The key invariant: **the frozen briefing is cached to disk before any decisions 
 ai-fund-manager/
 ├── CLAUDE.md                      # Project instructions (updated for multi-agent)
 ├── README.md                      # User-facing instructions
-├── .env                           # TUSHARE_TOKEN, GEMINI_API_KEY
+├── .env                           # TUSHARE_TOKEN, GEMINI_API_KEY, OLLAMA_CLOUD_API_KEY
 ├── requirements.txt
 ├── src/
 │   ├── data/
@@ -332,7 +332,7 @@ Split into two parts:
 | ...
 
 当前现金：¥81,450
-组合净值：¥100,680（+0.68%）
+组合净值：¥600,xxx（示例）
 同期CSI300：+1.20%
 
 ## 上期回顾
@@ -497,7 +497,7 @@ Dynamically renders N agents — no hardcoding. Late-joining agents show "---" f
 Shared template used by all agents. Identical input ensures fair competition on reasoning ability.
 
 ```
-你是一位管理10万元人民币A股模拟组合的独立基金经理。你拥有完全的投资决策权。
+你是一位管理60万元人民币A股模拟组合的独立基金经理。你拥有完全的投资决策权。
 
 【你是谁】
 你有自己的投资风格和判断力。你不是一个信息聚合器——你是一个有观点的投资者。

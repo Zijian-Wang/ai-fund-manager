@@ -2,5 +2,6 @@ tushare>=1.4.0
 akshare>=1.18,<2  # upstream Eastmoney backend is flaky; pin a major
 baostock
 google-genai>=1.0  # successor to deprecated google-generativeai
+openai>=1.30.0  # for Ollama Cloud (OpenAI-compatible /v1), DeepSeek etc.
 python-dotenv>=1.0.0
 requests>=2.31.0

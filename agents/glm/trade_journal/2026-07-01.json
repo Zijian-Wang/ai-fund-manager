@@ -1,0 +1,45 @@
+{
+  "eval_date": "2026-07-01",
+  "market_view": "弱势市，黄金资源+宽基。",
+  "decisions": [
+    {
+      "action": "BUY",
+      "ticker": "518880",
+      "name": "黄金ETF",
+      "allocation_pct": 25,
+      "reason": {
+        "thesis": "宏观对冲工具",
+        "catalyst": "避险",
+        "risk": "金价回落",
+        "invalidation": "跌超15%"
+      }
+    },
+    {
+      "action": "BUY",
+      "ticker": "510300",
+      "name": "沪深300ETF",
+      "allocation_pct": 20,
+      "reason": {
+        "thesis": "低估+资金",
+        "catalyst": "稳增长",
+        "risk": "基本面差",
+        "invalidation": "失守支撑"
+      }
+    },
+    {
+      "action": "BUY",
+      "ticker": "600030",
+      "name": "中信证券",
+      "allocation_pct": 10,
+      "reason": {
+        "thesis": "券商弹性",
+        "catalyst": "成交放大",
+        "risk": "低迷",
+        "invalidation": "成交低"
+      }
+    }
+  ],
+  "watchlist_updates": [],
+  "reflection": "结构化配置。",
+  "note_to_audience": "分散高确信。"
+}

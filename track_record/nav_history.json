@@ -1,40 +1,34 @@
 [
   {
-    "date": "2026-04-17",
+    "date": "2026-07-01",
     "benchmark": {
       "index": "000300.SH",
-      "close": 4728.6716
+      "close": 4958.98
     },
     "agents": {
-      "claude": {
-        "nav": 100000.0,
-        "cumulative_return_pct": 0.0,
-        "cash_pct": 0.62595,
-        "position_count": 2
-      },
       "deepseek": {
-        "nav": 100000.0,
+        "nav": 600000.0,
         "cumulative_return_pct": 0.0,
-        "cash_pct": 0.376,
+        "cash_pct": 0.5185833333333333,
         "position_count": 2
       },
       "gemini": {
-        "nav": 100000.0,
+        "nav": 600000.0,
         "cumulative_return_pct": 0.0,
-        "cash_pct": 0.8372,
-        "position_count": 1
+        "cash_pct": 0.4014083333333333,
+        "position_count": 3
       },
-      "grok": {
-        "nav": 100000.0,
+      "glm": {
+        "nav": 600000.0,
         "cumulative_return_pct": 0.0,
-        "cash_pct": 0.888,
-        "position_count": 1
+        "cash_pct": 0.451975,
+        "position_count": 3
       },
-      "kimi": {
-        "nav": 100000.0,
+      "qwen": {
+        "nav": 600000.0,
         "cumulative_return_pct": 0.0,
-        "cash_pct": 0.5028,
-        "position_count": 2
+        "cash_pct": 0.40051166666666665,
+        "position_count": 3
       }
     }
   }

@@ -1,0 +1,45 @@
+{
+  "eval_date": "2026-07-01",
+  "market_view": "市场分化，黄金强势，北向流入。配置资源+宽基。",
+  "decisions": [
+    {
+      "action": "BUY",
+      "ticker": "601899",
+      "name": "紫金矿业",
+      "allocation_pct": 25,
+      "reason": {
+        "thesis": "黄金趋势向上，紫金龙头受益",
+        "catalyst": "地缘+宽松",
+        "risk": "商品回调",
+        "invalidation": "金价破位"
+      }
+    },
+    {
+      "action": "BUY",
+      "ticker": "518880",
+      "name": "黄金ETF",
+      "allocation_pct": 20,
+      "reason": {
+        "thesis": "纯黄金暴露",
+        "catalyst": "避险需求",
+        "risk": "金价调整",
+        "invalidation": "破前低"
+      }
+    },
+    {
+      "action": "BUY",
+      "ticker": "510300",
+      "name": "沪深300ETF",
+      "allocation_pct": 15,
+      "reason": {
+        "thesis": "宽基低估+资金流入",
+        "catalyst": "政策+盈利修复",
+        "risk": "复苏慢",
+        "invalidation": "破位"
+      }
+    }
+  ],
+  "watchlist_updates": [],
+  "reflection": "新书首期，聚焦强势板块。",
+  "note_to_audience": "资源提供边际，宽基底仓。"
+}

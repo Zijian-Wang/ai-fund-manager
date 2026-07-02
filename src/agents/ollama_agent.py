@@ -1,27 +1,37 @@
-"""Gemini agent.
+"""Ollama Cloud agent (API path).
 
-Uses the ``google-genai`` SDK (the supported successor to the deprecated
-``google-generativeai``). The agent receives the per-agent briefing text
-+ raw portfolio state + memory dict, renders the system prompt via
-``build_full_prompt``, and calls the provider's API.
+Uses Ollama Cloud via its OpenAI-compatible endpoint (https://ollama.com/v1).
+Authentication uses the real OLLAMA_CLOUD_API_KEY (not the dummy "ollama").
 
-Tests inject a mock client via ``_client`` so they don't hit the network.
+IMPORTANT:
+- Only models hosted on Ollama Cloud are supported (open-weight models).
+- Good choices (2026): qwen3*, deepseek-r1*, glm-*, gemma4*, gpt-oss*, llama* etc.
+- DO NOT use closed models here (e.g. gpt-4o, claude-*, gemini-*, grok-*) — they are not
+  available on Ollama Cloud. Use the manual webchat agents for those.
+
+The agent receives the same briefing + portfolio + memory as other agents and
+must return the exact JSON schema expected by the system.
 """
+
 from __future__ import annotations
 
 import json
 from typing import Any
 
+from openai import OpenAI
+
 from src.agents.base import AgentResult, BaseAgent
 from src.briefing import build_full_prompt
 
 
-_DEFAULT_MODEL = "gemini-3.1-pro"  # Gemini 3.1 Pro (with Thinking mode support in Studio/API; "gemini 3 pro thinking" available)
+_DEFAULT_MODEL = "qwen3:30b"   # Strong reasoning + Chinese support. Change per your cloud models.
+# Other solid options often available on Ollama Cloud:
+#   "deepseek-r1:70b", "qwen3.6:27b", "glm-5", "gemma4:27b", "gpt-oss:20b", "llama3.3:70b"
 
 
-class GeminiAgent(BaseAgent):
-    name = "gemini"
-    display_name = "Gemini 3.1 Pro (Thinking)"
+class OllamaAgent(BaseAgent):
+    name = "ollama"
+    display_name = "Ollama Cloud"
 
     def __init__(
         self,
@@ -32,15 +42,16 @@ class GeminiAgent(BaseAgent):
     ) -> None:
         if not api_key and _client is None:
             raise ValueError(
-                "GEMINI_API_KEY is required (set in .env or pass api_key=...)"
+                "OLLAMA_CLOUD_API_KEY is required (set in .env or pass api_key=...)"
             )
         self.model_name = model_name
         if _client is not None:
             self._client = _client
         else:
-            from google import genai
-
-            self._client = genai.Client(api_key=api_key)
+            self._client = OpenAI(
+                base_url="https://ollama.com/v1",
+                api_key=api_key,
+            )
 
     def _render_memory(self, memory: dict) -> str:
         """Concatenate memory files into one text blob with section headers."""
@@ -72,11 +83,15 @@ class GeminiAgent(BaseAgent):
         )
 
         try:
-            response = self._client.models.generate_content(
+            response = self._client.chat.completions.create(
                 model=self.model_name,
-                contents=prompt,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                # Many Ollama models respect this; harmless if ignored.
+                # response_format={"type": "json_object"},
             )
-            raw_text = response.text
+            raw_text = response.choices[0].message.content or ""
         except Exception as exc:  # noqa: BLE001
             return AgentResult(status="error", error=str(exc))
 

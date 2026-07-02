@@ -1,20 +1,20 @@
 {
-  "agent": "gemini",
+  "agent": "qwen",
   "inception_date": "2026-07-01",
   "initial_capital": 600000,
-  "current_cash": 240845.0,
+  "current_cash": 240307.0,
   "last_eval_date": "2026-07-01",
   "positions": [
     {
       "ticker": "601899",
       "name": "紫金矿业",
-      "quantity": 7100,
+      "quantity": 8900,
       "avg_cost": 16.85
     },
     {
       "ticker": "518880",
       "name": "黄金ETF",
-      "quantity": 38200,
+      "quantity": 30600,
       "avg_cost": 3.92
     },
     {
@@ -30,18 +30,18 @@
       "action": "BUY",
       "ticker": "601899",
       "name": "紫金矿业",
-      "quantity": 7100,
+      "quantity": 8900,
       "price": 16.85,
-      "reason_summary": "商品+公司驱动"
+      "reason_summary": "黄金趋势向上，紫金龙头受益"
     },
     {
       "eval_date": "2026-07-01",
       "action": "BUY",
       "ticker": "518880",
       "name": "黄金ETF",
-      "quantity": 38200,
+      "quantity": 30600,
       "price": 3.92,
-      "reason_summary": "纯暴露稳定器"
+      "reason_summary": "纯黄金暴露"
     },
     {
       "eval_date": "2026-07-01",
@@ -50,14 +50,14 @@
       "name": "沪深300ETF",
       "quantity": 18100,
       "price": 4.96,
-      "reason_summary": "核心资产，北向信号"
+      "reason_summary": "宽基低估+资金流入"
     }
   ],
   "nav_history": [
     {
       "date": "2026-07-01",
       "nav": 600000.0,
-      "cash_pct": 0.4014083333333333,
+      "cash_pct": 0.40051166666666665,
       "position_count": 3,
       "benchmark_close": 4958.98,
       "cumulative_return_pct": 0.0

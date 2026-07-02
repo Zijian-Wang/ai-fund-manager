@@ -44,8 +44,10 @@ def init_agent_state(
     template_root = Path(template_root)
     for item in template_root.iterdir():
         dest = agent_dir / item.name
+        if dest.exists():
+            continue  # preserve existing memory (beliefs, watchlist, lessons, etc.)
         if item.is_dir():
-            shutil.copytree(item, dest, dirs_exist_ok=True)
+            shutil.copytree(item, dest)
         else:
             shutil.copy2(item, dest)
 

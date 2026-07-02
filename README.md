@@ -1,6 +1,6 @@
 # AI 基金经理 · 多 Agent A 股模拟组合
 
-多个 AI（Claude、Gemini 等）各自独立管理 ¥100,000 A 股模拟组合。相同数据输入、不同 AI 大脑、独立决策。结果用于小红书内容发布。
+多个 AI（Claude、Gemini、Grok 等）各自独立管理 ¥600,000 A 股模拟组合。相同数据输入、不同 AI 大脑、独立决策。结果用于小红书内容发布。
 
 ## 快速开始
 
@@ -19,7 +19,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 # 4) 配置 API Keys
 cp .env.example .env
 # 编辑 .env，填入 TUSHARE_TOKEN（必须）
-# GEMINI_API_KEY 等 API agent keys 在 manual-first 模式下不需要
+# GEMINI_API_KEY、OLLAMA_CLOUD_API_KEY 等 API agent keys 在 manual-first 模式下不需要
 
 # 5) 运行测试，确认一切就绪
 pytest
@@ -67,7 +67,7 @@ briefing prompt 粘进那家 AI 的 webchat。零代码。
 
 1. 在 `src/agents/` 新建 `<provider>_agent.py`，继承 `BaseAgent`
 2. 实现 `decide(briefing, portfolio_state, memory) -> AgentResult`
-3. 在 `.env` 中添加 API key（例如 `DEEPSEEK_API_KEY=...`）
+3. 在 `.env` 中添加 API key（例如 `DEEPSEEK_API_KEY=...` 或 `OLLAMA_CLOUD_API_KEY=...`）
 4. 在 `src/agents/registry.py` 的 `AGENTS` 字典中注册
 5. 在 skill 里切换对应 agent 到 API 路径
 

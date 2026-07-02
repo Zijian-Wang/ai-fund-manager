@@ -1,0 +1,33 @@
+{
+  "eval_date": "2026-07-01",
+  "market_view": "震荡市，黄金+成长龙头。",
+  "decisions": [
+    {
+      "action": "BUY",
+      "ticker": "601899",
+      "name": "紫金矿业",
+      "allocation_pct": 30,
+      "reason": {
+        "thesis": "商品+基本面共振",
+        "catalyst": "金铜价格上移",
+        "risk": "大宗波动",
+        "invalidation": "金价破位"
+      }
+    },
+    {
+      "action": "BUY",
+      "ticker": "300750",
+      "name": "宁德时代",
+      "allocation_pct": 20,
+      "reason": {
+        "thesis": "新能源长期趋势，估值吸引力",
+        "catalyst": "海外+储能",
+        "risk": "竞争和原材料",
+        "invalidation": "销量不及预期"
+      }
+    }
+  ],
+  "watchlist_updates": [],
+  "reflection": "深度分析后配置高ROE周期共振。",
+  "note_to_audience": "防守反击。"
+}

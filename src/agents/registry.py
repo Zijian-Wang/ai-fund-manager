@@ -1,6 +1,6 @@
 """Agent registry — discover active agents from environment variables.
 
-To add a new agent (e.g. DeepSeek):
+To add a new agent (e.g. Qwen/DeepSeek/GLM via Ollama Cloud or Gemini):
 1. Subclass BaseAgent in src/agents/<provider>_agent.py
 2. Add an entry to AGENTS below with the dotted class path + env key
 3. Add the env key to .env
@@ -26,6 +26,18 @@ AGENTS: dict[str, dict[str, str]] = {
     #     "class": "src.agents.deepseek_agent.DeepSeekAgent",
     #     "env_key": "DEEPSEEK_API_KEY",
     # },
+    "qwen": {
+        "class": "src.agents.qwen_agent.QwenAgent",
+        "env_key": "OLLAMA_CLOUD_API_KEY",
+    },
+    "deepseek": {
+        "class": "src.agents.deepseek_agent.DeepSeekAgent",
+        "env_key": "OLLAMA_CLOUD_API_KEY",
+    },
+    "glm": {
+        "class": "src.agents.glm_agent.GLMAgent",
+        "env_key": "OLLAMA_CLOUD_API_KEY",
+    },
 }
 
 
